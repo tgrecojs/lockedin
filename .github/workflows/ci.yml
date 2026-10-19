@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build-and-test:
+    # macos-26 ships Xcode 26.x; Package.swift stays at swift-tools-version 6.2 so it builds there too.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+      - name: Build
+        run: swift build -c release
+      - name: Test
+        run: swift test
+      - name: Bundle app
+        run: |
+          scripts/make-app.sh .build/release/LockedInApp build/LockedIn.app
+          codesign --verify --strict build/LockedIn.app
