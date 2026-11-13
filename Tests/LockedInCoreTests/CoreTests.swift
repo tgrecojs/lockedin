@@ -204,7 +204,8 @@ struct HostsFileTests {
         #expect(merged == stock + "0.0.0.0\tads.example.net\n" + HostsFile.renderSection(names: ["youtube.com"]))
         #expect(HostsFile.strip(merged, names: ["youtube.com"]) == stock + "0.0.0.0\tads.example.net\n")
         #expect(HostsFile.strip(markersDeleted) == markersDeleted)
-        #expect(!HostsFile.isCurrent(markersDeleted + HostsFile.renderSection(names: ["youtube.com"]), names: ["youtube.com"]))
+        let duplicated = markersDeleted + HostsFile.renderSection(names: ["youtube.com"])
+        #expect(!HostsFile.isCurrent(duplicated, names: ["youtube.com"]))
     }
 
     @Test func foreignLinesAfterSectionArePreserved() {
