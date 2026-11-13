@@ -36,7 +36,7 @@ smoke:
 	sudo scripts/smoke-test.sh
 
 lint:
-	swift format lint -r Sources Tests
+	swift format lint --strict --recursive Sources Tests
 
 run-app: build
 	$(BUILD_DIR)/LockedInApp

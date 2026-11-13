@@ -1,14 +1,21 @@
 name: CI
 on:
   push:
-    branches: [main]
   pull_request:
 jobs:
   build-and-test:
-    # macos-26 ships Xcode 26.x; Package.swift stays at swift-tools-version 6.2 so it builds there too.
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        # Package.swift needs swift-tools-version 6.2 (Xcode 26), which needs macOS 15.6+, so macos-14 cannot build it.
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        # macos-15 defaults to Xcode 16; pick the newest Xcode 26 the image ships.
+        if: matrix.os == 'macos-15'
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Toolchain
         run: swift --version && xcodebuild -version
       - name: Build
@@ -19,3 +26,10 @@ jobs:
         run: |
           scripts/make-app.sh .build/release/LockedInApp build/LockedIn.app
           codesign --verify --strict build/LockedIn.app
+  lint:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift-format
+        # --strict turns warnings into a failing exit code; without it lint never fails the job.
+        run: swift format lint --strict --recursive Sources Tests
