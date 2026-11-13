@@ -305,19 +305,26 @@ struct SettingsView: View {
     @AppStorage("playEndSound") private var playEndSound = true
 
     var body: some View {
+        // Grouped puts each label on the left of its own row and wraps it. The default (columns) style
+        // right-aligns labels into a column that overflowed the window and clipped the text.
         Form {
-            Stepper(value: $maxBlockMinutes, in: 30...(Identifiers.maxBlockSeconds / 60), step: 30) {
-                Text("Longest block the slider offers: \(BlockDuration.words(Double(maxBlockMinutes * 60)))")
+            Section {
+                Stepper(value: $maxBlockMinutes, in: 30...(Identifiers.maxBlockSeconds / 60), step: 30) {
+                    Text("Longest block the slider offers: \(BlockDuration.words(Double(maxBlockMinutes * 60)))")
+                }
+                // verbatim: a localized string key autolinks "www." as a URL.
+                Toggle(isOn: $expandSubdomains) { Text(verbatim: "Also block www. and m. variants and known aliases") }
+                Toggle("Play a sound when a block ends", isOn: $playEndSound)
+            } footer: {
+                Text(
+                    "Blocks are enforced by a root daemon that keeps running after this app quits, after a restart, and after the clock is changed."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            Toggle("Also block www. and m. variants and known aliases", isOn: $expandSubdomains)
-            Toggle("Play a sound when a block ends", isOn: $playEndSound)
-            Text(
-                "Blocks are enforced by a root daemon that keeps running after this app quits, after a restart, and after the clock is changed."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
-        .padding(20)
+        .formStyle(.grouped)
         .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
