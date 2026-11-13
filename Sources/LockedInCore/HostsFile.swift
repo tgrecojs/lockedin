@@ -1,13 +1,16 @@
 import Foundation
 
-/// Renders, detects, and strips the LockedIn section of /etc/hosts (and the old SelfControl one).
+/// Renders, detects, and splices the LockedIn section of /etc/hosts (and removes the old SelfControl one).
+///
+/// Everything outside the markers is copied byte for byte: line endings, whitespace, a missing final
+/// newline. Only the bytes from the begin marker through the end marker's terminator are replaced.
 public enum HostsFile {
-    public static func renderSection(names: [String]) -> String {
-        var out = Identifiers.hostsBeginLine + "\n"
+    public static func renderSection(names: [String], terminator: String = "\n") -> String {
+        var out = Identifiers.hostsBeginLine + terminator
         for name in Set(names).sorted() {
-            out += "0.0.0.0\t\(name)\n::\t\(name)\n"
+            out += "0.0.0.0\t\(name)" + terminator + "::\t\(name)" + terminator
         }
-        out += Identifiers.hostsEndMarker + "\n"
+        out += Identifiers.hostsEndMarker + terminator
         return out
     }
 
@@ -17,47 +20,46 @@ public enum HostsFile {
         }
     }
 
-    /// Removes every LockedIn section and every legacy SelfControl section. Nothing outside the
-    /// markers is touched, so a `0.0.0.0 name` line someone wrote themselves always survives.
+    /// Removes every LockedIn section. Nothing outside the markers changes, byte for byte.
     /// An unterminated section owns only the run of `0.0.0.0 name` / `:: name` lines right after
-    /// its begin marker; the first other line and everything after it are kept. Normalizes CRLF to LF.
+    /// its begin marker; the first other line and everything after it are kept.
     public static func strip(_ text: String) -> String {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        var kept: [Substring] = []
-        var endMarker: String? = nil
-        var inside: [Substring] = []
-        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if let end = endMarker {
-                if trimmed == end {
-                    endMarker = nil
-                    inside = []
-                } else {
-                    inside.append(line)
-                }
-                continue
-            }
-            if trimmed.hasPrefix(Identifiers.hostsBeginMarker) {
-                endMarker = Identifiers.hostsEndMarker
-                continue
-            }
-            if trimmed.hasPrefix(Identifiers.legacyHostsBeginMarker) {
-                endMarker = Identifiers.legacyHostsEndMarker
-                continue
-            }
-            kept.append(line)
-        }
-        if endMarker != nil { kept += inside.drop { isBlockLine($0.trimmingCharacters(in: .whitespaces)) } }
-        var result = kept.joined(separator: "\n")
-        if normalized.hasSuffix("\n"), !result.isEmpty, !result.hasSuffix("\n") { result += "\n" }
-        return result
+        splice(text, begin: Identifiers.hostsBeginMarker, end: Identifiers.hostsEndMarker, replacement: nil)
     }
 
-    /// The file contents with exactly one LockedIn section, at the end. Empty `names` means no section.
+    /// Removes the old SelfControl section the same way. Only the installer calls this: it is a one-time
+    /// migration, not something the daemon does to a file it otherwise leaves alone.
+    public static func stripLegacy(_ text: String) -> String {
+        splice(
+            text, begin: Identifiers.legacyHostsBeginMarker, end: Identifiers.legacyHostsEndMarker, replacement: nil)
+    }
+
+    /// The file with exactly one LockedIn section: in place of the first existing one, otherwise at the end.
+    /// The section uses the file's dominant line ending. Empty `names` means no section.
     public static func merged(original: String, names: [String]) -> String {
-        var base = strip(original)
-        if !base.isEmpty, !base.hasSuffix("\n") { base += "\n" }
-        return names.isEmpty ? base : base + renderSection(names: names)
+        let outside = strip(original)
+        guard !names.isEmpty else { return outside }
+        let terminator = dominantTerminator(outside)
+        return splice(
+            original, begin: Identifiers.hostsBeginMarker, end: Identifiers.hostsEndMarker,
+            replacement: renderSection(names: names, terminator: terminator), terminator: terminator)
+    }
+
+    /// True when the file already is exactly what `merged` would produce.
+    public static func isCurrent(_ text: String, names: [String]) -> Bool {
+        text == merged(original: text, names: names)
+    }
+
+    /// "\r\n" when more lines end that way than with a bare "\n"; otherwise "\n".
+    static func dominantTerminator(_ text: String) -> String {
+        var lf = 0
+        var crlf = 0
+        var previous: UInt8 = 0
+        for byte in text.utf8 {
+            if byte == 0x0A { if previous == 0x0D { crlf += 1 } else { lf += 1 } }
+            previous = byte
+        }
+        return crlf > lf ? "\r\n" : "\n"
     }
 
     /// A line of the form LockedIn writes: `0.0.0.0<ws>name` or `::<ws>name`.
@@ -66,8 +68,65 @@ public enum HostsFile {
         return parts.count == 2 && (parts[0] == "0.0.0.0" || parts[0] == "::")
     }
 
-    /// True when the file already is exactly what `merged` would produce.
-    public static func isCurrent(_ text: String, names: [String]) -> Bool {
-        text == merged(original: text, names: names)
+    /// Each line as its exact bytes (`raw`, terminator included) and its text without the terminator.
+    /// Splits on the "\n" byte, which never occurs inside a multi-byte UTF-8 sequence.
+    static func lines(_ text: String) -> [(raw: String, content: String)] {
+        let bytes = Array(text.utf8)
+        var out: [(raw: String, content: String)] = []
+        var start = 0
+        while start < bytes.count {
+            let newline = bytes[start...].firstIndex(of: 0x0A)
+            let end = newline.map { $0 + 1 } ?? bytes.count
+            var contentEnd = newline ?? bytes.count
+            if contentEnd > start, bytes[contentEnd - 1] == 0x0D { contentEnd -= 1 }
+            out.append(
+                (
+                    String(decoding: bytes[start..<end], as: UTF8.self),
+                    String(decoding: bytes[start..<contentEnd], as: UTF8.self)
+                ))
+            start = end
+        }
+        return out
+    }
+
+    /// Copies `text` line by line, verbatim, dropping every `begin`...`end` section. `replacement`, if
+    /// given, goes where the first section started, or at the end (after `terminator` if the file
+    /// lacks a final newline).
+    static func splice(
+        _ text: String, begin: String, end: String, replacement: String?, terminator: String = "\n"
+    ) -> String {
+        var out = ""
+        var placed = replacement == nil
+        var inSection = false
+        var pending: [(raw: String, content: String)] = []
+        for line in lines(text) {
+            let trimmed = line.content.trimmingCharacters(in: .whitespaces)
+            if inSection {
+                if trimmed == end {
+                    inSection = false
+                    pending = []
+                } else {
+                    pending.append(line)
+                }
+                continue
+            }
+            if trimmed.hasPrefix(begin) {
+                if !placed, let replacement {
+                    out += replacement
+                    placed = true
+                }
+                inSection = true
+                continue
+            }
+            out += line.raw
+        }
+        if inSection {
+            out += pending.drop { isBlockLine($0.content.trimmingCharacters(in: .whitespaces)) }.map(\.raw).joined()
+        }
+        if !placed, let replacement {
+            if let last = out.utf8.last, last != 0x0A { out += terminator }
+            out += replacement
+        }
+        return out
     }
 }
