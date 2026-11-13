@@ -124,10 +124,26 @@ a restart can only make a block a few seconds longer, never shorter.
   name only if that happens.
 - **VPNs and proxies** may carry traffic the firewall never sees.
 - **No wildcards.** `*.example.com` is not supported; list the subdomains you mean.
-- **No allowlist mode, schedules, or per-app blocking** yet.
+- **No allowlist mode, schedules, or per-app blocking** yet. See [Roadmap](#roadmap).
 - **Disabling the daemon in Login Items** (an administrator can) pauses the countdown and stops
   re-application, though the hosts entries stay. That is the one way out, and it is deliberate
   that it takes an administrator and a trip to System Settings.
+
+## Roadmap
+
+In order. Each item has an issue with its scope and the rules it must not break; the main one is
+that nothing ends a block early.
+
+1. **Allowlist mode** ([#1](https://github.com/tgrecojs/lockedin/issues/1)). Block everything
+   except the sites you list. Firewall only, since `/etc/hosts` cannot express "everything except".
+2. **Schedules** ([#2](https://github.com/tgrecojs/lockedin/issues/2)). Start blocks on chosen
+   days and times. A block that has started still runs to its end if the schedule changes.
+3. **Per-app blocking** ([#3](https://github.com/tgrecojs/lockedin/issues/3)). Block apps, not
+   just sites. The mechanism is still open; each option has a real cost.
+4. **Reflection layer** ([#4](https://github.com/tgrecojs/lockedin/issues/4)). Mindfulness around
+   a block: an intention and optional breathwork before, a note on how it went after. It needs a
+   backend, which LockedIn does not have, so it is furthest out. It will never be able to end or
+   pause a block.
 
 ## Can I end a block early?
 
