@@ -20,6 +20,14 @@ struct BlockEntryParsingTests {
         #expect(try BlockEntry.parse("http://reddit.com/").description == "reddit.com")
     }
 
+    @Test func urlWithAllDigitPathDropsThePath() throws {
+        #expect(try BlockEntry.parse("https://xkcd.com/927").description == "xkcd.com")
+        #expect(try BlockEntry.parse("http://Example.com:8080/2024").description == "example.com:8080")
+        #expect(try BlockEntry.parse("https://198.51.100.1/24").description == "198.51.100.1")
+        // Without a scheme, digits after a slash are still a network prefix, and a host can't have one.
+        #expect(throws: EntryError.invalidPrefix("example.com/8")) { try BlockEntry.parse("example.com/8") }
+    }
+
     @Test func hostsOnlyPrefix() throws {
         let e = try BlockEntry.parse("~reddit.com")
         #expect(e.hostsOnly)
@@ -56,6 +64,66 @@ struct BlockEntryParsingTests {
             let e = try BlockEntry.parse(s)
             #expect(try BlockEntry.parse(e.description) == e)
         }
+    }
+}
+
+@Suite("Parsing edge cases")
+struct ParsingEdgeCaseTests {
+    func canonical(_ raw: String) throws -> String { try BlockEntry.parse(raw).description }
+
+    @Test func portSuffixes() throws {
+        #expect(try BlockEntry.parse("example.com:443").port == 443)
+        #expect(try canonical("example.com:1") == "example.com:1")
+        #expect(try canonical("example.com:65535") == "example.com:65535")
+        #expect(throws: EntryError.invalidPort("example.com:")) { try BlockEntry.parse("example.com:") }
+        // IPv6 with a port needs brackets; without them every colon belongs to the address.
+        #expect(try BlockEntry.parse("2001:db8::1:443").port == nil)
+        #expect(try canonical("[2001:db8::1]") == "2001:db8::1")
+        #expect(throws: EntryError.invalidHost("[2001:db8::1")) { try BlockEntry.parse("[2001:db8::1") }
+        #expect(throws: EntryError.invalidHost("[2001:db8::1]x")) { try BlockEntry.parse("[2001:db8::1]x") }
+    }
+
+    @Test func cidr() throws {
+        #expect(try canonical("198.51.100.7/32") == "198.51.100.7")
+        #expect(try canonical("198.51.100.77/25") == "198.51.100.0/25")
+        #expect(try canonical("2001:db8::1/128") == "2001:db8::1")
+        #expect(throws: EntryError.invalidPrefix("10.0.0.0/33")) { try BlockEntry.parse("10.0.0.0/33") }
+        #expect(throws: EntryError.invalidPrefix("2001:db8::/129")) { try BlockEntry.parse("2001:db8::/129") }
+        #expect(throws: EntryError.empty) { try BlockEntry.parse("/24") }
+    }
+
+    @Test func hostsOnlyPrefix() throws {
+        #expect(try canonical("~ reddit.com") == "~reddit.com")
+        #expect(try canonical("~https://Reddit.com/r/swift") == "~reddit.com")
+        #expect(throws: EntryError.invalidHost("~~reddit.com")) { try BlockEntry.parse("~~reddit.com") }
+        #expect(throws: EntryError.conflictingScope("~reddit.com:443")) { try BlockEntry.parse("~reddit.com:443") }
+        for address in ["~198.51.100.1", "~203.0.113.0/24", "~2001:db8::/32", "~[2001:db8::1]:443"] {
+            #expect(throws: EntryError.hostsOnlyAddress(address)) { try BlockEntry.parse(address) }
+        }
+    }
+
+    @Test func pastedURLsDropThePath() throws {
+        #expect(try canonical("youtube.com/feed/subscriptions") == "youtube.com")
+        #expect(try canonical("https://www.reddit.com/r/swift/comments/abc/") == "www.reddit.com")
+        #expect(try canonical("HTTPS://WWW.EXAMPLE.COM/Path") == "www.example.com")
+        #expect(try canonical("https://example.com:8443/a/b?c=d#e") == "example.com:8443")
+        #expect(try canonical("https://example.com?x=1") == "example.com")
+        #expect(try canonical("https://medium.com/@someone/post") == "medium.com")
+    }
+
+    @Test func malformedDurations() {
+        for bad in ["1.5h", "h", "1x", "1:2:3:4", ":30", "1h-30m", "2h30", "0h", "0:00", "1h 0x"] {
+            #expect(BlockDuration.parse(bad) == nil, "\(bad) should be rejected")
+        }
+    }
+
+    @Test func duplicateSitesCollapse() throws {
+        let raw = ["Reddit.com", "https://reddit.com/r/swift", "reddit.com.", "  reddit.com  "]
+        let plan = BlockPlan.compile(try raw.map(BlockEntry.parse), expand: false)
+        #expect(plan.entries == ["reddit.com"])
+        #expect(plan.hostsNames == ["reddit.com"])
+        #expect(plan.pfNames == ["reddit.com"])
+        #expect(plan.adding([try BlockEntry.parse("REDDIT.COM")]) == plan)
     }
 }
 
@@ -281,6 +349,14 @@ struct DurationTests {
         #expect(BlockDuration.parse("abc") == nil)
         #expect(BlockDuration.parse("1h30") == nil)
         #expect(BlockDuration.parse("") == nil)
+    }
+
+    @Test func overflowingDurationsAreRejectedNotTrapped() {
+        #expect(BlockDuration.parse("999999999999999d") == nil)
+        #expect(BlockDuration.parse("999999999999999999") == nil)
+        #expect(BlockDuration.parse("9999999999999999:00") == nil)
+        #expect(BlockDuration.parse("9223372036854775807s 1s") == nil)
+        #expect(BlockDuration.parse("106751991167300d") == 106_751_991_167_300 * 86_400)
     }
 
     @Test func formatting() {

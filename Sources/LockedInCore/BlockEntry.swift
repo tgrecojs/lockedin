@@ -9,6 +9,7 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidPort(String)
     case invalidPrefix(String)
     case conflictingScope(String)
+    case hostsOnlyAddress(String)
 
     public var description: String {
         switch self {
@@ -21,6 +22,8 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
         case .invalidPrefix(let s):
             return "\"\(s)\": a network prefix needs an IP address and 1-32 (IPv4) or 1-128 (IPv6) bits"
         case .conflictingScope(let s): return "\"\(s)\": ~ (hosts-only) cannot be combined with a port"
+        case .hostsOnlyAddress(let s):
+            return "\"\(s)\": ~ only applies to hostnames; IPs are blocked by the firewall — drop the ~"
         }
     }
 }
@@ -74,6 +77,7 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
             guard !s.isEmpty else { throw EntryError.empty }
         }
 
+        let isURL = s.contains("://")
         if let scheme = s.range(of: "://") { s = String(s[scheme.upperBound...]) }
         if let cut = s.firstIndex(where: { $0 == "?" || $0 == "#" }) { s = String(s[..<cut]) }
         if let at = s.lastIndex(of: "@") {
@@ -90,7 +94,7 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
                 portText = String(after[after.index(after: colon)...])
                 after = String(after[..<colon])
             }
-            if !after.isEmpty, after.allSatisfy(\.isNumber) {
+            if !isURL, !after.isEmpty, after.allSatisfy(\.isNumber) {
                 prefix = Int(after)
             } else {
                 portText = nil  // it was a URL path, not a network prefix
@@ -128,6 +132,7 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
 
         if let ip = IPAddress(s) {
             if ip.isLoopback || ip.isUnspecified { throw EntryError.loopback(raw) }
+            if hostsOnly { throw EntryError.hostsOnlyAddress(raw) }
             if let prefix {
                 guard prefix >= 1, prefix <= ip.maxPrefix else { throw EntryError.invalidPrefix(raw) }
                 return BlockEntry(target: .network(IPNetwork(address: ip, prefix: prefix)), port: port)
