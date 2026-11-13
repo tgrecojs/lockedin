@@ -97,6 +97,9 @@ struct ParsingEdgeCaseTests {
         #expect(try canonical("~https://Reddit.com/r/swift") == "~reddit.com")
         #expect(throws: EntryError.invalidHost("~~reddit.com")) { try BlockEntry.parse("~~reddit.com") }
         #expect(throws: EntryError.conflictingScope("~reddit.com:443")) { try BlockEntry.parse("~reddit.com:443") }
+        for address in ["~198.51.100.1", "~203.0.113.0/24", "~2001:db8::/32", "~[2001:db8::1]:443"] {
+            #expect(throws: EntryError.hostsOnlyAddress(address)) { try BlockEntry.parse(address) }
+        }
     }
 
     @Test func pastedURLsDropThePath() throws {

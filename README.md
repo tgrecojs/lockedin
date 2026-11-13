@@ -123,6 +123,8 @@ a restart can only make a block a few seconds longer, never shorter.
   on the same CDN addresses for the length of the block. Prefix a site with `~` to block it by
   name only if that happens.
 - **VPNs and proxies** may carry traffic the firewall never sees.
+- **`~` is for names only.** `/etc/hosts` maps names, not addresses, so `~203.0.113.7` or
+  `~203.0.113.0/24` is rejected. Drop the `~` to block an address or network with the firewall.
 - **No wildcards.** `*.example.com` is not supported; list the subdomains you mean.
 - **No allowlist mode, schedules, or per-app blocking** yet. See [Roadmap](#roadmap).
 - **Disabling the daemon in Login Items** (an administrator can) pauses the countdown and stops
