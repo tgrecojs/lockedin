@@ -20,6 +20,7 @@ sed -e "s/__BUNDLE_ID__/$BUNDLE_ID/g" -e "s/__VERSION__/$VERSION/g" -e "s/__BUIL
 printf 'APPL????' > "$OUT/Contents/PkgInfo"
 cp "$BIN" "$OUT/Contents/MacOS/LockedIn"
 chmod 755 "$OUT/Contents/MacOS/LockedIn"
+cp "$HERE/../Resources/AppIcon.icns" "$OUT/Contents/Resources/AppIcon.icns"
 plutil -lint "$OUT/Contents/Info.plist" >/dev/null
 codesign --force --sign - --identifier "$BUNDLE_ID" "$OUT"
 codesign --verify --strict "$OUT"
