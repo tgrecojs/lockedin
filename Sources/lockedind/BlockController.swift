@@ -92,7 +92,7 @@ final class BlockController {
 
     /// Idle housekeeping: remove anything a previous run left behind.
     func ensureClean() {
-        if hosts.stripAll() {
+        if hosts.remove() {
             hosts.flushDNSCache()
             Log.info("removed a leftover hosts section")
         }
@@ -380,11 +380,13 @@ final class BlockController {
 
     // MARK: - Expiry and persistence
 
-    private func expire() {
+    /// Internal, not private, so the relocated-root tests can end a block without waiting.
+    /// No request reaches it: the protocol has no stop command.
+    func expire() {
         guard let block else { return }
         Log.info("block ended after \(BlockDuration.words(Double(block.initialSeconds)))")
         stopTimer()
-        tearDown(names: block.plan.hostsNames, tokens: block.pfTokens)
+        tearDown(tokens: block.pfTokens)
         unresolvedWarned = []
         self.block = nil
         countdown = nil
@@ -394,8 +396,8 @@ final class BlockController {
         persist()
     }
 
-    private func tearDown(names: [String], tokens: [String]) {
-        if hosts.remove(names: names) { Log.info("hosts section removed") }
+    private func tearDown(tokens: [String]) {
+        if hosts.remove() { Log.info("hosts section removed") }
         hosts.flushDNSCache()
         pf.flushAnchor()
         for token in tokens { pf.release(token: token) }

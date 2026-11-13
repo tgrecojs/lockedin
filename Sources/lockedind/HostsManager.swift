@@ -35,20 +35,17 @@ final class HostsManager {
         return write(HostsFile.merged(original: text, names: names))
     }
 
-    /// Removes our section and any stray lines for `names`. Returns true when it wrote.
+    /// Removes our section and nothing else. Returns true when it wrote.
     @discardableResult
-    func remove(names: [String]) -> Bool {
+    func remove() -> Bool {
         guard let text = currentText() else {
             Log.error("cannot read \(path)")
             return false
         }
-        let cleaned = HostsFile.strip(text, names: names)
+        let cleaned = HostsFile.strip(text)
         if cleaned == text { return false }
         return write(cleaned)
     }
-
-    @discardableResult
-    func stripAll() -> Bool { remove(names: []) }
 
     private func write(_ text: String) -> Bool {
         let fm = FileManager.default
