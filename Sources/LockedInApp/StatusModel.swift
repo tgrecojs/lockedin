@@ -45,10 +45,15 @@ final class StatusModel {
 
     func refresh() {
         lastFetchNs = Self.nowNs()
-        Task.detached { [weak self] in
-            let result = Result { try SocketClient().send(Request(cmd: .status)).status ?? StatusReport(state: .idle) }
-            await MainActor.run { self?.apply(result) }
+        Task { [weak self] in
+            let result = await Self.fetchStatus()
+            self?.apply(result)
         }
+    }
+
+    /// The socket call blocks for up to 2 s, so it runs off the main actor.
+    @concurrent private nonisolated static func fetchStatus() async -> Result<StatusReport, any Error> {
+        Result { try SocketClient().send(Request(cmd: .status)).status ?? StatusReport(state: .idle) }
     }
 
     private func apply(_ result: Result<StatusReport, any Error>) {
