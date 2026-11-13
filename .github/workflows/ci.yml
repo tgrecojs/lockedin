@@ -11,7 +11,7 @@ jobs:
         os: [macos-15, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Select Xcode 26
         # macos-15 defaults to Xcode 16; pick the newest Xcode 26 the image ships.
         if: matrix.os == 'macos-15'
@@ -29,7 +29,7 @@ jobs:
   lint:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: swift-format
         # --strict turns warnings into a failing exit code; without it lint never fails the job.
         run: swift format lint --strict --recursive Sources Tests
