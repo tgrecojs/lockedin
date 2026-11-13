@@ -20,6 +20,14 @@ struct BlockEntryParsingTests {
         #expect(try BlockEntry.parse("http://reddit.com/").description == "reddit.com")
     }
 
+    @Test func urlWithAllDigitPathDropsThePath() throws {
+        #expect(try BlockEntry.parse("https://xkcd.com/927").description == "xkcd.com")
+        #expect(try BlockEntry.parse("http://Example.com:8080/2024").description == "example.com:8080")
+        #expect(try BlockEntry.parse("https://198.51.100.1/24").description == "198.51.100.1")
+        // Without a scheme, digits after a slash are still a network prefix, and a host can't have one.
+        #expect(throws: EntryError.invalidPrefix("example.com/8")) { try BlockEntry.parse("example.com/8") }
+    }
+
     @Test func hostsOnlyPrefix() throws {
         let e = try BlockEntry.parse("~reddit.com")
         #expect(e.hostsOnly)

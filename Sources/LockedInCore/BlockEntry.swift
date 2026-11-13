@@ -74,6 +74,7 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
             guard !s.isEmpty else { throw EntryError.empty }
         }
 
+        let isURL = s.contains("://")
         if let scheme = s.range(of: "://") { s = String(s[scheme.upperBound...]) }
         if let cut = s.firstIndex(where: { $0 == "?" || $0 == "#" }) { s = String(s[..<cut]) }
         if let at = s.lastIndex(of: "@") {
@@ -90,7 +91,7 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
                 portText = String(after[after.index(after: colon)...])
                 after = String(after[..<colon])
             }
-            if !after.isEmpty, after.allSatisfy(\.isNumber) {
+            if !isURL, !after.isEmpty, after.allSatisfy(\.isNumber) {
                 prefix = Int(after)
             } else {
                 portText = nil  // it was a URL path, not a network prefix
