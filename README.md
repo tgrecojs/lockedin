@@ -162,6 +162,8 @@ Removes the daemon, its launchd job, the pf anchor, the CLI, and the app. Your b
 
 ## Development
 
+Why LockedIn is built this way, and what was rejected: [DESIGN.md](DESIGN.md).
+
 ```bash
 swift build          # debug build of everything
 swift test           # unit tests for parsing, expansion, hosts/pf rendering, countdown, protocol
