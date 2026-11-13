@@ -291,6 +291,14 @@ struct DurationTests {
         #expect(BlockDuration.parse("") == nil)
     }
 
+    @Test func overflowingDurationsAreRejectedNotTrapped() {
+        #expect(BlockDuration.parse("999999999999999d") == nil)
+        #expect(BlockDuration.parse("999999999999999999") == nil)
+        #expect(BlockDuration.parse("9999999999999999:00") == nil)
+        #expect(BlockDuration.parse("9223372036854775807s 1s") == nil)
+        #expect(BlockDuration.parse("106751991167300d") == 106_751_991_167_300 * 86_400)
+    }
+
     @Test func formatting() {
         #expect(BlockDuration.clock(6130) == "1:42:10")
         #expect(BlockDuration.clock(59.2) == "1:00")

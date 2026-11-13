@@ -8,15 +8,15 @@ public enum BlockDuration {
 
         if s.allSatisfy(\.isNumber) {
             guard let minutes = Int(s), minutes > 0 else { return nil }
-            return minutes * 60
+            return sum([(minutes, 60)])
         }
 
         if s.contains(":") {
             let parts = s.split(separator: ":", omittingEmptySubsequences: false).map { Int($0) }
             guard parts.count == 2 || parts.count == 3, !parts.contains(nil) else { return nil }
             let v = parts.compactMap { $0 }
-            let total = v.count == 2 ? v[0] * 3600 + v[1] * 60 : v[0] * 3600 + v[1] * 60 + v[2]
-            return total > 0 ? total : nil
+            let total = sum([(v[0], 3600), (v[1], 60)] + (v.count == 3 ? [(v[2], 1)] : []))
+            return total.flatMap { $0 > 0 ? $0 : nil }
         }
 
         var total = 0
@@ -35,7 +35,8 @@ public enum BlockDuration {
             case "s": multiplier = 1
             default: return false
             }
-            total += n * multiplier
+            guard let next = sum([(total, 1), (n, multiplier)]) else { return false }
+            total = next
             number = ""
             unit = ""
             sawUnit = true
@@ -56,6 +57,18 @@ public enum BlockDuration {
             }
         }
         guard flush(), number.isEmpty, sawUnit, total > 0 else { return nil }
+        return total
+    }
+
+    /// Sum of `value * multiplier` terms, or nil on overflow, so absurd input is rejected instead of trapping.
+    static func sum(_ terms: [(Int, Int)]) -> Int? {
+        var total = 0
+        for (value, multiplier) in terms {
+            let (product, productOverflow) = value.multipliedReportingOverflow(by: multiplier)
+            let (next, sumOverflow) = total.addingReportingOverflow(product)
+            if productOverflow || sumOverflow { return nil }
+            total = next
+        }
         return total
     }
 
