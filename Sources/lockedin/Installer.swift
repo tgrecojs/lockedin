@@ -244,7 +244,7 @@ struct Installer {
             hosts.contains(legacy.pfAnchorName) == false,
             hosts.contains(Identifiers.legacyHostsBeginMarker)
         {
-            let stripped = HostsFile.strip(hosts)
+            let stripped = HostsFile.stripLegacy(hosts)
             let temporary = Identifiers.hostsPath + ".lockedin.tmp"
             if (try? stripped.write(toFile: temporary, atomically: false, encoding: .utf8)) != nil {
                 try? fm.setAttributes(

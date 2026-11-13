@@ -40,8 +40,16 @@ struct HostsOwnershipTests {
         let truncated = Identifiers.hostsBeginLine + "\n0.0.0.0\texample.com\n::\texample.com\n"
         let user = stock + "0.0.0.0 example.com\n"
         let (during, after) = try runBlock(on: user + truncated + "10.0.0.5\tnas.local\n")
-        #expect(during == user + "10.0.0.5\tnas.local\n" + section)
+        #expect(during == user + section + "10.0.0.5\tnas.local\n")
         #expect(after == user + "10.0.0.5\tnas.local\n")
+    }
+
+    @Test func crlfFileRoundTripsByteForByte() throws {
+        let original = "##\r\n127.0.0.1\tlocalhost\r\n0.0.0.0 example.com\r\n"
+        let (during, after) = try runBlock(on: original)
+        let crlfSection = HostsFile.renderSection(names: ["example.com"], terminator: "\r\n")
+        #expect(Array(during.utf8) == Array((original + crlfSection).utf8))
+        #expect(Array(after.utf8) == Array(original.utf8))
     }
 
     @Test func sameSiteInsideAndOutsideTheSection() throws {

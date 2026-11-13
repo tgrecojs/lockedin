@@ -247,12 +247,13 @@ struct HostsFileTests {
         #expect(HostsFile.isCurrent(stock, names: []))
     }
 
-    @Test func stripIsIdempotentAndRemovesLegacy() {
+    @Test func legacySectionIsLeftToTheInstaller() {
         let legacy =
             stock + "\n# BEGIN SELFCONTROL BLOCK\n0.0.0.0\tyoutube.com\n::\tyoutube.com\n# END SELFCONTROL BLOCK\n"
-        let once = HostsFile.strip(legacy)
+        #expect(HostsFile.strip(legacy) == legacy)
+        let once = HostsFile.stripLegacy(legacy)
         #expect(once == stock + "\n")
-        #expect(HostsFile.strip(once) == once)
+        #expect(HostsFile.stripLegacy(once) == once)
     }
 
     @Test func unterminatedSectionOwnsOnlyItsLeadingBlockLines() {
@@ -265,7 +266,7 @@ struct HostsFileTests {
     @Test func missingTrailingNewlineAndCRLF() {
         let merged = HostsFile.merged(original: "127.0.0.1\tlocalhost", names: ["x.com"])
         #expect(merged.hasPrefix("127.0.0.1\tlocalhost\n" + Identifiers.hostsBeginLine))
-        #expect(HostsFile.strip("a\r\nb\r\n") == "a\nb\n")
+        #expect(Array(HostsFile.strip("a\r\nb\r\n").utf8) == Array("a\r\nb\r\n".utf8))
     }
 
     @Test func linesOutsideTheSectionAreNeverTouched() {
@@ -274,6 +275,31 @@ struct HostsFileTests {
         #expect(merged == own + HostsFile.renderSection(names: ["youtube.com"]))
         #expect(HostsFile.isCurrent(merged, names: ["youtube.com"]))
         #expect(HostsFile.strip(merged) == own)
+    }
+
+    @Test func crlfFileKeepsEveryByteAndGetsACRLFSection() {
+        let crlf = "##\r\n127.0.0.1\tlocalhost\r\n0.0.0.0 example.com  \r\n"
+        let merged = HostsFile.merged(original: crlf, names: ["x.com"])
+        let section = HostsFile.renderSection(names: ["x.com"], terminator: "\r\n")
+        #expect(Array(merged.utf8) == Array((crlf + section).utf8))
+        #expect(HostsFile.isCurrent(merged, names: ["x.com"]))
+        #expect(Array(HostsFile.strip(merged).utf8) == Array(crlf.utf8))
+    }
+
+    @Test func sectionUsesTheMajorityLineEnding() {
+        #expect(HostsFile.dominantTerminator("a\r\nb\r\nc\n") == "\r\n")
+        #expect(HostsFile.dominantTerminator("a\nb\nc\r\n") == "\n")
+        #expect(HostsFile.dominantTerminator("a\r\nb\n") == "\n")
+        #expect(HostsFile.dominantTerminator("") == "\n")
+    }
+
+    @Test func sectionIsReplacedInPlace() {
+        // Two CRLF lines outside the section against one LF line: the new section is CRLF.
+        let (head, tail) = ("a\r\nc\r\n", "b\n")
+        let text = head + HostsFile.renderSection(names: ["old.com"]) + tail
+        let merged = HostsFile.merged(original: text, names: ["new.com"])
+        let expected = head + HostsFile.renderSection(names: ["new.com"], terminator: "\r\n") + tail
+        #expect(Array(merged.utf8) == Array(expected.utf8))
     }
 
     @Test func foreignLinesAfterSectionArePreserved() {

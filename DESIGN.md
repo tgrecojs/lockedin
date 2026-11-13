@@ -116,7 +116,7 @@ Further rules:
 
 ## The hosts contract
 
-The daemon owns one marked section at the end of `/etc/hosts`:
+The daemon owns one marked section of `/etc/hosts`, appended at the end the first time:
 
 ```
 # BEGIN LOCKEDIN BLOCK -- managed by com.tgreco.lockedin.daemon; re-applied until the block ends; do not edit
@@ -129,18 +129,24 @@ The daemon owns one marked section at the end of `/etc/hosts`:
 
 What that means in practice:
 
-- **Starting a block** appends the section. Every line outside it stays exactly where it was, byte
-  for byte. That includes lines for the same sites: a hand-written `0.0.0.0 facebook.com` stays, and
-  the section adds its own copy. A duplicate is harmless; deleting someone's own entry is not.
-- **Ending a block** removes the lines between the markers and nothing else.
+- **Every write is a splice.** The file is read as lines with their own terminators. Bytes outside
+  the markers are copied verbatim, including line endings, trailing whitespace and blank lines. The
+  section, from its begin marker through its end marker's terminator, is replaced whole, in place.
+  If there is no section yet, it is appended.
+- **The section uses the file's dominant line ending.** If more lines end in CRLF than in LF, the
+  section is written with CRLF, so a CRLF file stays consistent.
+- **Starting a block** leaves every pre-existing line where it was. That includes lines for the same
+  sites: a hand-written `0.0.0.0 facebook.com` stays, and the section adds its own copy. A
+  duplicate is harmless; deleting someone's own entry is not.
+- **Ending a block** removes the bytes between the markers and nothing else.
 - **An unterminated section** (begin marker, no end marker) owns only the run of `0.0.0.0`/`::`
   lines right after the begin marker. The first other line, and everything after it, is kept.
 - **The marker strings never change.** The daemon finds its section only by the markers, and no
   other record of it exists. Renaming them would orphan every section already written to a live
   Mac. The strings are asserted literally in the tests.
-- **The old SelfControl section** (`# BEGIN SELFCONTROL BLOCK`) is removed whenever LockedIn writes
-  the file. SelfControl is replaced, its block can't be ended by anything else, and the installer
-  imports its list first.
+- **The old SelfControl section** (`# BEGIN SELFCONTROL BLOCK`) is removed by `lockedin install`,
+  once, as a migration: SelfControl is uninstalled in the same step and its list imported first.
+  The daemon never touches it. `lockedin doctor` reports one that is still there.
 
 Trade-off accepted: if someone deletes only the two marker lines during a block, the lines that were
 between them are no longer LockedIn's. The 15 s check sees the section missing and writes a fresh
@@ -148,9 +154,9 @@ one. The orphaned lines stay after the block ends, and those sites stay blocked 
 removes them. LockedIn won't guess which unmarked lines it once wrote. An earlier version did guess,
 and it deleted users' own entries.
 
-Known exception, still open: when it rewrites the file, LockedIn converts Windows (CRLF) line endings
-to Unix (LF) line endings across the whole file. A CRLF `/etc/hosts` is rare on a Mac, but the
-conversion does touch lines outside the section.
+One byte can be added outside the section: if the file does not end with a newline, the section
+needs one in front of it to start on its own line, and that newline stays after the block ends.
+The stock macOS `/etc/hosts` ends with a newline, so in practice this does not happen.
 
 How writes happen: the new text goes to a temporary file next to `/etc/hosts`, gets the original's
 mode and owner, and is `rename(2)`d into place. Nobody ever reads a half-written hosts file. After a
