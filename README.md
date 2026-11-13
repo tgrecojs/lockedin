@@ -35,8 +35,9 @@ There is no stop button.
 
 ## Install
 
-Requirements: macOS 14 or newer, Xcode 16 or newer (or the Command Line Tools with a Swift 6
-toolchain), an administrator account.
+Requirements: an administrator account, and Xcode 26 or newer (or its Command Line Tools) for
+Swift 6.2. Xcode 26 itself needs macOS 15.6 or newer, and since you build on the Mac you install
+on, that is the real floor. The built binaries target macOS 14.
 
 ```bash
 git clone https://github.com/tgrecojs/lockedin.git
