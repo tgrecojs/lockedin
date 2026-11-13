@@ -39,7 +39,7 @@ sleep 17
 check "pf re-enabled within 17 s"        "pfctl -s info 2>/dev/null | grep -q 'Status: Enabled'"
 
 echo "4. tamper: strip the hosts section"
-sed -i '' '/LOCKEDIN/d' /etc/hosts
+sed -i '' '/# BEGIN LOCKEDIN BLOCK/,/# END LOCKEDIN BLOCK/d' /etc/hosts
 sleep 3
 check "hosts section restored"           "grep -q '# BEGIN LOCKEDIN BLOCK' /etc/hosts"
 

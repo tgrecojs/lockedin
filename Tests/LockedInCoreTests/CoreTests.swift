@@ -187,9 +187,11 @@ struct HostsFileTests {
         #expect(HostsFile.strip(once) == once)
     }
 
-    @Test func unterminatedSectionIsDroppedToEOF() {
-        let broken = stock + Identifiers.hostsBeginLine + "\n0.0.0.0\tx.com\n"
-        #expect(HostsFile.strip(broken) == stock)
+    @Test func unterminatedSectionOwnsOnlyItsLeadingBlockLines() {
+        let atEOF = stock + Identifiers.hostsBeginLine + "\n0.0.0.0\tx.com\n::\tx.com\n"
+        #expect(HostsFile.strip(atEOF) == stock)
+        let foreign = "10.0.0.5\tnas.local\n0.0.0.0\tads.example.net\n"
+        #expect(HostsFile.strip(atEOF + foreign) == stock + foreign)
     }
 
     @Test func missingTrailingNewlineAndCRLF() {
@@ -198,14 +200,12 @@ struct HostsFileTests {
         #expect(HostsFile.strip("a\r\nb\r\n") == "a\nb\n")
     }
 
-    @Test func strayLinesForOurNamesAreReclaimedButForeignOnesKept() {
-        let markersDeleted = stock + "0.0.0.0\tyoutube.com\n::\tyoutube.com\n0.0.0.0\tads.example.net\n"
-        let merged = HostsFile.merged(original: markersDeleted, names: ["youtube.com"])
-        #expect(merged == stock + "0.0.0.0\tads.example.net\n" + HostsFile.renderSection(names: ["youtube.com"]))
-        #expect(HostsFile.strip(merged, names: ["youtube.com"]) == stock + "0.0.0.0\tads.example.net\n")
-        #expect(HostsFile.strip(markersDeleted) == markersDeleted)
-        let duplicated = markersDeleted + HostsFile.renderSection(names: ["youtube.com"])
-        #expect(!HostsFile.isCurrent(duplicated, names: ["youtube.com"]))
+    @Test func linesOutsideTheSectionAreNeverTouched() {
+        let own = stock + "0.0.0.0\tyoutube.com\n::\tyoutube.com\n"
+        let merged = HostsFile.merged(original: own, names: ["youtube.com"])
+        #expect(merged == own + HostsFile.renderSection(names: ["youtube.com"]))
+        #expect(HostsFile.isCurrent(merged, names: ["youtube.com"]))
+        #expect(HostsFile.strip(merged) == own)
     }
 
     @Test func foreignLinesAfterSectionArePreserved() {

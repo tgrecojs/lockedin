@@ -31,6 +31,7 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .testTarget(name: "LockedInCoreTests", dependencies: ["LockedInCore"]),
+        .testTarget(name: "lockedindTests", dependencies: ["lockedind"]),
     ],
     swiftLanguageModes: [.v6]
 )
