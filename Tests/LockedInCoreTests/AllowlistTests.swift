@@ -15,6 +15,10 @@ struct AllowlistPlanTests {
         #expect(throws: EntryError.portInAllowlist("[2001:db8::1]:443")) {
             try BlockEntry.parse("[2001:db8::1]:443", for: .allowlist)
         }
+        // Loopback is always reachable in an allowlist, so the blocklist wording would mislead.
+        #expect(throws: EntryError.alwaysReachable("localhost")) { try BlockEntry.parse("localhost", for: .allowlist) }
+        #expect(throws: EntryError.alwaysReachable("127.0.0.1")) { try BlockEntry.parse("127.0.0.1", for: .allowlist) }
+        #expect(throws: EntryError.localhost("localhost")) { try BlockEntry.parse("localhost", for: .blocklist) }
         // The general rules still apply first.
         #expect(throws: EntryError.self) { try BlockEntry.parse("*.example.com", for: .allowlist) }
     }

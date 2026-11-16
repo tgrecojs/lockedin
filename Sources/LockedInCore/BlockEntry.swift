@@ -12,6 +12,7 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
     case hostsOnlyAddress(String)
     case hostsOnlyInAllowlist(String)
     case portInAllowlist(String)
+    case alwaysReachable(String)
 
     public var description: String {
         switch self {
@@ -30,6 +31,8 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
             return "\"\(s)\": ~ means hosts file only, and an allowlist does not use the hosts file — drop the ~"
         case .portInAllowlist(let s):
             return "\"\(s)\": an allowlist allows whole sites, not single ports — drop the port"
+        case .alwaysReachable(let s):
+            return "\"\(s)\": localhost is always reachable during an allowlist block — leave it out"
         }
     }
 }
@@ -74,7 +77,16 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
     /// alone (`/etc/hosts` cannot say "everything except"), so `~` has nothing to act on, and a
     /// port-limited entry would need a pass rule per port for little gain.
     public static func parse(_ raw: String, for mode: BlockMode) throws(EntryError) -> BlockEntry {
-        let entry = try parse(raw)
+        let entry: BlockEntry
+        do {
+            entry = try parse(raw)
+        } catch {
+            // "cannot be blocked" would be wrong here: an allowlist never blocks loopback.
+            switch (mode, error) {
+            case (.allowlist, .localhost), (.allowlist, .loopback): throw .alwaysReachable(raw)
+            default: throw error
+            }
+        }
         guard mode == .allowlist else { return entry }
         if entry.hostsOnly { throw EntryError.hostsOnlyInAllowlist(raw) }
         if entry.port != nil { throw EntryError.portInAllowlist(raw) }

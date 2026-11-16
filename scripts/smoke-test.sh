@@ -67,6 +67,15 @@ check "catch-all block is last"          "pfctl -a $ANCHOR -s rules 2>/dev/null 
 check "allowed table filled"             "pfctl -a $ANCHOR -t lockedin_allowed -T show 2>/dev/null | grep -q ."
 check "no hosts section"                 "! grep -q LOCKEDIN /etc/hosts"
 check "DNS still answers"                "dig +short +time=3 +tries=1 www.apple.com | grep -q ."
+# Dev servers often listen on only one of these (Astro and Vite: ::1).
+nc -l 127.0.0.1 54321 >/dev/null 2>&1 &
+listener4=$!
+nc -6 -l ::1 54322 >/dev/null 2>&1 &
+listener6=$!
+sleep 1
+check "localhost (127.0.0.1) reachable"  "nc -z -w 3 127.0.0.1 54321"
+check "localhost (::1) reachable"        "nc -6 -z -w 3 ::1 54322"
+kill "$listener4" "$listener6" 2>/dev/null
 if curl -m 10 -sS -o /dev/null https://example.com 2>/dev/null; then ok "example.com reachable"; else fail "example.com blocked"; fi
 if curl -m 5 -sS -o /dev/null https://www.apple.com 2>/dev/null; then fail "www.apple.com still reachable"; else ok "www.apple.com unreachable"; fi
 check "add refused"                      "! \"$CLI\" add www.apple.com >/dev/null 2>&1"

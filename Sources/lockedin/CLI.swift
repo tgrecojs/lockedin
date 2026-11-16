@@ -248,7 +248,7 @@ struct Start: ParsableCommand {
         if allowlist {
             print("Allowlist block started for \(length)\(ends).")
             print("  allowed: " + status.entries.joined(separator: " "))
-            print("  Every other site is blocked. DNS and your local network still work.")
+            print("  Every other site is blocked. Localhost, DNS, and your local network still work.")
         } else {
             print("Block started for \(length)\(ends).")
             print("  sites: " + status.entries.joined(separator: " "))
@@ -430,7 +430,7 @@ struct Preview: ParsableCommand {
             if !plan.networks.isEmpty {
                 print("Addresses allowed outright: " + plan.networks.map(\.description).joined(separator: " "))
             }
-            print("Also allowed: DNS and your local network. Every other site is blocked.")
+            print("Also allowed: localhost, DNS, and your local network. Every other site is blocked.")
             return
         }
         print("Names written to /etc/hosts (\(plan.hostsNames.count)):")

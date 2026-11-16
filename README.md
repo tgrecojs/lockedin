@@ -85,8 +85,8 @@ Durations: `25m`, `2h`, `1h30m`, `1d`, or a plain number of minutes.
 Sites: `youtube.com`, `example.com:8080` (one port only), `203.0.113.0/24` (a network),
 `~reddit.com` (hosts file only, see below). Pasted URLs work; the path is dropped.
 
-**Allowlist blocks** (`--allow`) are firewall only: DNS and your local network keep working, and
-every other site is blocked. Name the sites on the command line or with `--list file`; the saved
+**Allowlist blocks** (`--allow`) are firewall only: localhost, DNS, and your local network keep
+working, and every other site is blocked. Name the sites on the command line or with `--list file`; the saved
 blocklist is never used as an allowlist. `~` and `:port` do not apply. Sites cannot be added to a
 running allowlist, since that would loosen it, but `extend` works. Starting one from the menu bar
 app is not available yet.

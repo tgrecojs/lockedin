@@ -131,7 +131,7 @@ pass out quick from any to <lockedin_allowed>
 block return out quick all
 ```
 
-pf takes the first `quick` match, so the order is the policy. Loopback, DNS, DHCP, and the private,
+pf takes the first `quick` match, so the order is the policy. Loopback (localhost), DNS, DHCP, and the private,
 link-local, and multicast ranges always pass. Without DNS even allowed sites cannot be looked up,
 and without the local network the router, printers, and AirDrop stop. Everything else is the user's
 list, resolved with `dig` into `lockedin_allowed` and re-resolved like a blocklist (add-only).
