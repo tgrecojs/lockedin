@@ -304,13 +304,23 @@ struct SettingsView: View {
     @AppStorage("expandSubdomains") private var expandSubdomains = true
     @AppStorage("playEndSound") private var playEndSound = true
 
+    /// One click to any length up to the daemon's limit. The stepper took 30 minutes a click, so 7 days
+    /// was 300+ clicks. A value saved by the old stepper (say 1d 6h) stays in the list so the menu
+    /// never shows blank.
+    private var maxChoices: [Int] {
+        let hours = [1, 2, 4, 8, 12, 24, 48, 72, 120, 168].map { $0 * 60 }
+        return Set(hours + [maxBlockMinutes]).filter { $0 <= Identifiers.maxBlockSeconds / 60 }.sorted()
+    }
+
     var body: some View {
         // Grouped puts each label on the left of its own row and wraps it. The default (columns) style
         // right-aligns labels into a column that overflowed the window and clipped the text.
         Form {
             Section {
-                Stepper(value: $maxBlockMinutes, in: 30...(Identifiers.maxBlockSeconds / 60), step: 30) {
-                    Text("Longest block the slider offers: \(BlockDuration.words(Double(maxBlockMinutes * 60)))")
+                Picker("Longest block the slider offers", selection: $maxBlockMinutes) {
+                    ForEach(maxChoices, id: \.self) { minutes in
+                        Text(BlockDuration.words(Double(minutes * 60))).tag(minutes)
+                    }
                 }
                 // verbatim: a localized string key autolinks "www." as a URL.
                 Toggle(isOn: $expandSubdomains) { Text(verbatim: "Also block www. and m. variants and known aliases") }
