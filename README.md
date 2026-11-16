@@ -138,11 +138,14 @@ that nothing ends a block early.
 
 1. **Allowlist mode** ([#1](https://github.com/tgrecojs/lockedin/issues/1)). Block everything
    except the sites you list. Firewall only, since `/etc/hosts` cannot express "everything except".
-2. **Schedules** ([#2](https://github.com/tgrecojs/lockedin/issues/2)). Start blocks on chosen
+2. **Saved setups** ([#16](https://github.com/tgrecojs/lockedin/issues/16)). Restart a recent
+   block, save favourites like "Deep work, allowlist, 4h", and get suggestions for sites you often
+   block together. Stored only on your Mac, in `~/.config/lockedin`.
+3. **Schedules** ([#2](https://github.com/tgrecojs/lockedin/issues/2)). Start blocks on chosen
    days and times. A block that has started still runs to its end if the schedule changes.
-3. **Per-app blocking** ([#3](https://github.com/tgrecojs/lockedin/issues/3)). Block apps, not
+4. **Per-app blocking** ([#3](https://github.com/tgrecojs/lockedin/issues/3)). Block apps, not
    just sites. The mechanism is still open; each option has a real cost.
-4. **Reflection layer** ([#4](https://github.com/tgrecojs/lockedin/issues/4)). Mindfulness around
+5. **Reflection layer** ([#4](https://github.com/tgrecojs/lockedin/issues/4)). Mindfulness around
    a block: an intention and optional breathwork before, a note on how it went after. It needs a
    backend, which LockedIn does not have, so it is furthest out. It will never be able to end or
    pause a block.
