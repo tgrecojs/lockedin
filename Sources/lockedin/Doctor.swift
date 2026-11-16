@@ -56,12 +56,19 @@ struct Doctor: ParsableCommand {
         let hasSection = HostsFile.containsSection(hostsText)
         if let live {
             if live.isActive {
-                let expected = HostsFile.isCurrent(hostsText, names: live.hostsNames)
-                row(
-                    "hosts section",
-                    expected
-                        ? "present and correct (\(live.hostsNames.count) names)"
-                        : "wrong or missing (daemon re-applies every 15 s)", ok: expected)
+                if live.mode == .allowlist {
+                    // An allowlist is enforced by pf alone; a section here would be stale or foreign.
+                    row(
+                        "hosts section", hasSection ? "present during an allowlist block" : "not used (allowlist)",
+                        ok: !hasSection)
+                } else {
+                    let expected = HostsFile.isCurrent(hostsText, names: live.hostsNames)
+                    row(
+                        "hosts section",
+                        expected
+                            ? "present and correct (\(live.hostsNames.count) names)"
+                            : "wrong or missing (daemon re-applies every 15 s)", ok: expected)
+                }
                 if let pf = live.pf {
                     let text =
                         pf.simulated
