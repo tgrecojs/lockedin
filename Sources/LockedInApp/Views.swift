@@ -152,19 +152,28 @@ struct PopoverView: View {
                     Text("ends \(end, style: .time)").foregroundStyle(.secondary)
                 }
             }
-            Text(report.entries.joined(separator: "  "))
-                .font(.callout)
-                .lineLimit(3)
-            Text("\(report.hostsNames.count) names blocked, \(report.ipCount) addresses in the firewall")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if report.mode == .allowlist {
+                Text("Only these work: " + report.entries.joined(separator: "  "))
+                    .font(.callout)
+                    .lineLimit(3)
+                Text("Every other site is blocked. Started from the command line; sites cannot be added.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(report.entries.joined(separator: "  "))
+                    .font(.callout)
+                    .lineLimit(3)
+                Text("\(report.hostsNames.count) names blocked, \(report.ipCount) addresses in the firewall")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-            HStack {
-                TextField("Add a site to this block", text: $newSite)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addSite)
-                Button("Add", action: addSite).disabled(
-                    newSite.trimmingCharacters(in: .whitespaces).isEmpty || model.busy)
+                HStack {
+                    TextField("Add a site to this block", text: $newSite)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(addSite)
+                    Button("Add", action: addSite).disabled(
+                        newSite.trimmingCharacters(in: .whitespaces).isEmpty || model.busy)
+                }
             }
             HStack {
                 Menu("Extend") {
