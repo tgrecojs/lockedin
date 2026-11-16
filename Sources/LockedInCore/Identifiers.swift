@@ -4,9 +4,9 @@ import Foundation
 /// To rename the project or relocate its files, change values here and nowhere else.
 public enum Identifiers {
     public static let version = "0.1.0"
-    /// The newest protocol version this build accepts. It moves to `allowlistProtocolVersion` only when
-    /// the daemon enforces allowlist blocks, never before, so no daemon accepts a mode it would ignore.
-    public static let protocolVersion = 1
+    /// The newest protocol version this build accepts. Version 2 adds allowlist blocks; a daemon must
+    /// enforce a mode before it accepts the version that carries it, or it would quietly ignore it.
+    public static let protocolVersion = 2
     /// Requests that carry `mode: allowlist` are sent as this version. See `Request.init`.
     public static let allowlistProtocolVersion = 2
 

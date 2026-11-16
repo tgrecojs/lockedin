@@ -42,7 +42,9 @@ enum RequestHandler {
             }
             do {
                 return .success(
-                    status: try controller.start(entries: entries, seconds: seconds, expand: request.expand ?? true))
+                    status: try controller.start(
+                        entries: entries, seconds: seconds, expand: request.expand ?? true,
+                        mode: request.mode ?? .blocklist))
             } catch {
                 return .failure(error.info)
             }
