@@ -13,9 +13,19 @@ public struct PortGroup: Codable, Equatable, Sendable {
     }
 }
 
-/// The compiled form of a blocklist: which names go in the hosts file, which names get
-/// resolved for the firewall, and which raw networks are blocked outright.
+/// What a block's entries mean. An enum, not a flag: a third mode would otherwise become a second
+/// boolean that can contradict the first.
+public enum BlockMode: String, Codable, Sendable {
+    /// The entries are blocked; everything else works.
+    case blocklist
+    /// The entries are the only sites that work; everything else is blocked.
+    case allowlist
+}
+
+/// The compiled form of a block's entries: which names go in the hosts file, which names get
+/// resolved for the firewall, and which raw networks are matched outright.
 public struct BlockPlan: Codable, Equatable, Sendable {
+    public var mode: BlockMode
     /// Canonical input entries, deduplicated, in the order given.
     public var entries: [String]
     public var expand: Bool
@@ -31,7 +41,36 @@ public struct BlockPlan: Codable, Equatable, Sendable {
 
     public var ports: [UInt16] { portGroups.map(\.port) }
 
-    public static func compile(_ entries: [BlockEntry], expand: Bool) -> BlockPlan {
+    init(
+        mode: BlockMode, entries: [String], expand: Bool, hostsNames: [String], pfNames: [String],
+        hostsOnlyNames: [String], networks: [IPNetwork], portGroups: [PortGroup]
+    ) {
+        self.mode = mode
+        self.entries = entries
+        self.expand = expand
+        self.hostsNames = hostsNames
+        self.pfNames = pfNames
+        self.hostsOnlyNames = hostsOnlyNames
+        self.networks = networks
+        self.portGroups = portGroups
+    }
+
+    /// Plans saved before allowlist mode existed have no `mode`; they are blocklists. Decoding it as
+    /// required would fail on a block saved by an older daemon, and a block the new daemon cannot
+    /// read is a block that ends early.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try c.decodeIfPresent(BlockMode.self, forKey: .mode) ?? .blocklist
+        entries = try c.decode([String].self, forKey: .entries)
+        expand = try c.decode(Bool.self, forKey: .expand)
+        hostsNames = try c.decode([String].self, forKey: .hostsNames)
+        pfNames = try c.decode([String].self, forKey: .pfNames)
+        hostsOnlyNames = try c.decode([String].self, forKey: .hostsOnlyNames)
+        networks = try c.decode([IPNetwork].self, forKey: .networks)
+        portGroups = try c.decode([PortGroup].self, forKey: .portGroups)
+    }
+
+    public static func compile(_ entries: [BlockEntry], expand: Bool, mode: BlockMode = .blocklist) -> BlockPlan {
         let expanded = Expansion.expandAll(entries, enabled: expand)
         var hosts = Set<String>()
         var pf = Set<String>()
@@ -63,14 +102,14 @@ public struct BlockPlan: Codable, Equatable, Sendable {
             PortGroup(port: port, names: groups[port]!.names.sorted(), networks: groups[port]!.networks.sorted())
         }
         return BlockPlan(
-            entries: canonical, expand: expand, hostsNames: hosts.sorted(), pfNames: pf.sorted(),
+            mode: mode, entries: canonical, expand: expand, hostsNames: hosts.sorted(), pfNames: pf.sorted(),
             hostsOnlyNames: hostsOnly.sorted(), networks: networks.sorted(), portGroups: portGroups)
     }
 
     /// A new plan with extra entries added (removals are never possible during a block).
     public func adding(_ newEntries: [BlockEntry]) -> BlockPlan {
         let existing = entries.compactMap { try? BlockEntry.parse($0) }
-        return BlockPlan.compile(existing + newEntries, expand: expand)
+        return BlockPlan.compile(existing + newEntries, expand: expand, mode: mode)
     }
 
     /// Every name the daemon needs to resolve: pf names plus port-limited names.

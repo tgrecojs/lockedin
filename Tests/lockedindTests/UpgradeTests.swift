@@ -75,6 +75,7 @@ struct UpgradeTests {
         // Another boot, so it resumes from the saved remaining time rather than subtracting downtime.
         #expect(controller.isActive)
         #expect((7190...7196).contains(controller.currentRemaining))
+        #expect(controller.block?.plan.mode == .blocklist)
         #expect(controller.block?.plan.entries == ["youtube.com", "example.com:8080", "203.0.113.0/24", "~reddit.com"])
         #expect(try String(contentsOfFile: paths.hosts, encoding: .utf8).contains("0.0.0.0\tyoutube.com"))
     }

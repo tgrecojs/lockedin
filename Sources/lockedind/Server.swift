@@ -199,7 +199,7 @@ final class Connection {
             fail(.badRequest, "could not parse request: \(error)")
             return
         }
-        guard request.v == Identifiers.protocolVersion else {
+        guard request.isSupported() else {
             fail(.badRequest, "unsupported protocol version \(request.v)")
             return
         }
