@@ -29,14 +29,16 @@ public struct BlockPlan: Codable, Equatable, Sendable {
     /// Canonical input entries, deduplicated, in the order given.
     public var entries: [String]
     public var expand: Bool
-    /// Every plain host name, sorted. All of these get hosts-file lines.
+    /// Every plain host name, sorted. All of these get hosts-file lines. Empty in an allowlist.
     public var hostsNames: [String]
-    /// Host names that are also resolved and blocked by IP, sorted.
+    /// Host names resolved and matched by IP (blocked, or in an allowlist allowed), sorted.
     public var pfNames: [String]
     /// Host names blocked by the hosts file only (`~` entries and Google-family names), sorted.
+    /// Empty in an allowlist.
     public var hostsOnlyNames: [String]
-    /// Raw addresses and networks blocked on every port, sorted.
+    /// Raw addresses and networks matched on every port (blocked, or allowed), sorted.
     public var networks: [IPNetwork]
+    /// Empty in an allowlist.
     public var portGroups: [PortGroup]
 
     public var ports: [UInt16] { portGroups.map(\.port) }
@@ -98,6 +100,14 @@ public struct BlockPlan: Codable, Equatable, Sendable {
 
         var seen = Set<String>()
         let canonical = entries.map(\.description).filter { seen.insert($0).inserted }
+        if mode == .allowlist {
+            // The firewall is the only mechanism, so every name is resolved and allowed by IP, Google's
+            // included: allowing one Google site allows its shared front ends (README, Limits).
+            // `BlockEntry.parse(_:for: .allowlist)` has already refused `~` and ports.
+            return BlockPlan(
+                mode: .allowlist, entries: canonical, expand: expand, hostsNames: [], pfNames: hosts.sorted(),
+                hostsOnlyNames: [], networks: networks.sorted(), portGroups: [])
+        }
         let portGroups = groups.keys.sorted().map { port in
             PortGroup(port: port, names: groups[port]!.names.sorted(), networks: groups[port]!.networks.sorted())
         }
