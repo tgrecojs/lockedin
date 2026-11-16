@@ -30,6 +30,8 @@ There is no stop button.
 - **Adds the obvious variants.** `youtube.com` also blocks `www.youtube.com`, `m.youtube.com`,
   `youtu.be`, and friends. `twitter.com` and `x.com` cover each other. (Turn this off with
   `--no-expand` or in Settings.)
+- **Or blocks everything else.** `lockedin start 2h --allow github.com docs.swift.org` is an
+  allowlist: every other site is blocked until the timer ends.
 - **Imports your old SelfControl list** the first time it runs, and removes SelfControl's
   leftover helper, launchd job, and firewall anchor when you install.
 
@@ -66,6 +68,7 @@ add sites or extend the time, nothing else.
 ```bash
 lockedin start 25m                       # block your saved list for 25 minutes
 lockedin start 2h youtube.com x.com      # block these sites (and your list is not used)
+lockedin start 2h --allow github.com     # allowlist: block every site except github.com
 lockedin status                          # how long is left, what is blocked
 lockedin status --watch                  # live countdown
 lockedin add news.ycombinator.com        # add to the running block (never remove)
@@ -73,6 +76,7 @@ lockedin extend 30m                      # add time to the running block
 lockedin list                            # show the saved blocklist
 lockedin list add reddit.com             # save a site for next time
 lockedin preview reddit.com example.com:8080   # see what would be blocked, without blocking
+lockedin preview --allow github.com      # see what an allowlist would let through
 lockedin doctor                          # check that everything is installed and healthy
 ```
 
@@ -80,6 +84,12 @@ Durations: `25m`, `2h`, `1h30m`, `1d`, or a plain number of minutes.
 
 Sites: `youtube.com`, `example.com:8080` (one port only), `203.0.113.0/24` (a network),
 `~reddit.com` (hosts file only, see below). Pasted URLs work; the path is dropped.
+
+**Allowlist blocks** (`--allow`) are firewall only: DNS and your local network keep working, and
+every other site is blocked. Name the sites on the command line or with `--list file`; the saved
+blocklist is never used as an allowlist. `~` and `:port` do not apply. Sites cannot be added to a
+running allowlist, since that would loosen it, but `extend` works. Starting one from the menu bar
+app is not available yet.
 
 The saved blocklist is a plain text file, one site per line: `~/.config/lockedin/blocklist.txt`.
 
@@ -125,8 +135,18 @@ a restart can only make a block a few seconds longer, never shorter.
 - **VPNs and proxies** may carry traffic the firewall never sees.
 - **`~` is for names only.** `/etc/hosts` maps names, not addresses, so `~203.0.113.7` or
   `~203.0.113.0/24` is rejected. Drop the `~` to block an address or network with the firewall.
+- **Allowlist blocks leak differently.** They are enforced by the firewall alone, so DNS over HTTPS
+  no longer matters (its server is blocked too), but:
+  - another site on the same CDN address as an allowed site works too;
+  - allowing any Google site (YouTube included) allows Google's shared front ends, so Gmail and
+    Docs work as well;
+  - a site that loads from other domains (github.com uses githubassets.com) looks broken until you
+    list those too: try `lockedin preview --allow` and the browser's network tab;
+  - iCloud, software updates, and network time are blocked unless listed;
+  - DNS on port 53 is open to any server, and a VPN carries traffic the firewall never sees.
 - **No wildcards.** `*.example.com` is not supported; list the subdomains you mean.
-- **No allowlist mode, schedules, or per-app blocking** yet. See [Roadmap](#roadmap).
+- **No schedules or per-app blocking** yet, and allowlist blocks start from the command line only.
+  See [Roadmap](#roadmap).
 - **Disabling the daemon in Login Items** (an administrator can) pauses the countdown and stops
   re-application, though the hosts entries stay. That is the one way out, and it is deliberate
   that it takes an administrator and a trip to System Settings.
@@ -138,6 +158,7 @@ that nothing ends a block early.
 
 1. **Allowlist mode** ([#1](https://github.com/tgrecojs/lockedin/issues/1)). Block everything
    except the sites you list. Firewall only, since `/etc/hosts` cannot express "everything except".
+   Available from the command line (`--allow`); starting one from the app is next.
 2. **Saved setups** ([#16](https://github.com/tgrecojs/lockedin/issues/16)). Restart a recent
    block, save favourites like "Deep work, allowlist, 4h", and get suggestions for sites you often
    block together. Stored only on your Mac, in `~/.config/lockedin`.
