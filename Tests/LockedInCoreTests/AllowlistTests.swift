@@ -64,7 +64,7 @@ struct AllowlistRulesTests {
             # LockedIn pf anchor -- loaded into "com.apple/300.lockedin" by com.tgreco.lockedin.daemon; \
             regenerated automatically; do not edit
             table <lockedin_allowed> persist
-            pass out quick on lo0 all
+            pass out quick on lo0 all no state
             pass out quick proto { tcp udp } from any to any port 53
             pass out quick inet proto udp from any port 68 to any port 67
             pass out quick inet6 proto udp from any port 546 to any port 547

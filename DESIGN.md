@@ -122,7 +122,7 @@ same anchor:
 
 ```
 table <lockedin_allowed> persist
-pass out quick on lo0 all
+pass out quick on lo0 all no state
 pass out quick proto { tcp udp } from any to any port 53
 pass out quick inet proto udp from any port 68 to any port 67
 pass out quick inet6 proto udp from any port 546 to any port 547
@@ -138,6 +138,10 @@ list, resolved with `dig` into `lockedin_allowed` and re-resolved like a blockli
 
 Choices that differ from a blocklist:
 
+- **Loopback passes without state.** A localhost request and its reply both leave through `lo0`, so
+  a stateful pass matches the reply against the request's state in the wrong direction and pf drops
+  it silently. The first version did this and every local dev server hung. (`set skip on lo0` is the
+  usual answer, but it is a global option an anchor cannot set.)
 - **A separate table name.** Status checks and leftover-anchor cleanup look for a table by name, so
   `lockedin_allowed` can never pass for `lockedin_blocked` or the reverse.
 - **Open connections are dropped once, at the start.** pf checks rules only when a connection opens,

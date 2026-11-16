@@ -26,7 +26,10 @@ public enum PFAnchor {
             // First match wins (quick): the passes, then a catch-all block. `return` makes a blocked
             // connection fail at once instead of hanging until it times out.
             s += "table <\(Identifiers.pfAllowTable)> persist\n"
-            s += "pass out quick on lo0 all\n"
+            // No state on loopback: a request and its reply both go *out* on lo0, so pf would match the
+            // reply against the request's state as the wrong direction and silently drop it. Every
+            // localhost connection then hung (a dev server on [::1]:4321 timed out after 35 s).
+            s += "pass out quick on lo0 all no state\n"
             s += "pass out quick proto { tcp udp } from any to any port 53\n"
             s += "pass out quick inet proto udp from any port 68 to any port 67\n"
             s += "pass out quick inet6 proto udp from any port 546 to any port 547\n"
