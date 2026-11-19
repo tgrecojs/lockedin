@@ -1,6 +1,7 @@
 #!/bin/bash
 # End-to-end test on a Mac where LockedIn is installed. Starts a REAL 2-minute block of
 # example.com and a TEST-NET address, then checks hosts, pf, tamper recovery, and expiry.
+# Then a REAL 1-minute allowlist block of example.com: every other site is unreachable meanwhile.
 # Run with sudo. Nothing else on the machine is changed.
 set -uo pipefail
 
@@ -57,6 +58,34 @@ check "hosts section gone"               "! grep -q LOCKEDIN /etc/hosts"
 check "no stray example.com lines"       "! grep -qE '^(0\\.0\\.0\\.0|::)[[:space:]]+(www\\.|m\\.)?example\\.com' /etc/hosts"
 check "anchor empty"                     "! pfctl -a $ANCHOR -s rules 2>/dev/null | grep -q '<$TABLE>'"
 if curl -m 10 -sS -o /dev/null https://example.com 2>/dev/null; then ok "example.com reachable again"; else fail "example.com still unreachable"; fi
+
+echo "7. start a 1-minute allowlist block of example.com"
+"$CLI" start 1m --allow example.com || { echo "allowlist start failed"; exit 1; }
+sleep 6
+check "allowlist rules loaded"           "pfctl -a $ANCHOR -s rules 2>/dev/null | grep -q '<lockedin_allowed>'"
+check "catch-all block is last"          "pfctl -a $ANCHOR -s rules 2>/dev/null | tail -n 1 | grep -q 'block return out quick all'"
+check "allowed table filled"             "pfctl -a $ANCHOR -t lockedin_allowed -T show 2>/dev/null | grep -q ."
+check "no hosts section"                 "! grep -q LOCKEDIN /etc/hosts"
+check "DNS still answers"                "dig +short +time=3 +tries=1 www.apple.com | grep -q ."
+# Dev servers often listen on only one of these (Astro and Vite: ::1).
+nc -l 127.0.0.1 54321 >/dev/null 2>&1 &
+listener4=$!
+nc -6 -l ::1 54322 >/dev/null 2>&1 &
+listener6=$!
+sleep 1
+check "localhost (127.0.0.1) reachable"  "nc -z -w 3 127.0.0.1 54321"
+check "localhost (::1) reachable"        "nc -6 -z -w 3 ::1 54322"
+kill "$listener4" "$listener6" 2>/dev/null
+if curl -m 10 -sS -o /dev/null https://example.com 2>/dev/null; then ok "example.com reachable"; else fail "example.com blocked"; fi
+if curl -m 5 -sS -o /dev/null https://www.apple.com 2>/dev/null; then fail "www.apple.com still reachable"; else ok "www.apple.com unreachable"; fi
+check "add refused"                      "! \"$CLI\" add www.apple.com >/dev/null 2>&1"
+
+after=$("$CLI" status --json | python3 -c 'import json,sys; print(int(json.load(sys.stdin)["remainingSeconds"]))')
+echo "8. wait for expiry (${after}s)"
+sleep $((after + 4))
+check "status idle"                      "\"$CLI\" status | grep -q idle"
+check "anchor empty"                     "! pfctl -a $ANCHOR -s rules 2>/dev/null | grep -q 'lockedin_'"
+if curl -m 10 -sS -o /dev/null https://www.apple.com 2>/dev/null; then ok "www.apple.com reachable again"; else fail "www.apple.com still unreachable"; fi
 
 echo
 if [ $fails -eq 0 ]; then echo "SMOKE TEST PASSED"; else echo "SMOKE TEST: $fails failure(s); see /Library/Logs/LockedIn/lockedind.log"; exit 1; fi

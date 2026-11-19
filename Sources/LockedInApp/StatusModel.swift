@@ -72,7 +72,7 @@ final class StatusModel {
             if let saved = StateFileReader.read() {
                 if saved.state == .active, let block = saved.block {
                     report = StatusReport(
-                        state: .active, remainingSeconds: block.remainingSeconds,
+                        state: .active, mode: block.plan.mode, remainingSeconds: block.remainingSeconds,
                         expectedEnd: saved.savedAt.addingTimeInterval(block.remainingSeconds),
                         startedAt: block.startedAt, initialSeconds: block.initialSeconds,
                         entries: block.plan.entries, hostsNames: block.plan.hostsNames,

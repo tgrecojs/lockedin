@@ -10,6 +10,9 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
     case invalidPrefix(String)
     case conflictingScope(String)
     case hostsOnlyAddress(String)
+    case hostsOnlyInAllowlist(String)
+    case portInAllowlist(String)
+    case alwaysReachable(String)
 
     public var description: String {
         switch self {
@@ -24,6 +27,12 @@ public enum EntryError: Error, Equatable, Sendable, CustomStringConvertible {
         case .conflictingScope(let s): return "\"\(s)\": ~ (hosts-only) cannot be combined with a port"
         case .hostsOnlyAddress(let s):
             return "\"\(s)\": ~ only applies to hostnames; IPs are blocked by the firewall — drop the ~"
+        case .hostsOnlyInAllowlist(let s):
+            return "\"\(s)\": ~ means hosts file only, and an allowlist does not use the hosts file — drop the ~"
+        case .portInAllowlist(let s):
+            return "\"\(s)\": an allowlist allows whole sites, not single ports — drop the port"
+        case .alwaysReachable(let s):
+            return "\"\(s)\": localhost is always reachable during an allowlist block — leave it out"
         }
     }
 }
@@ -62,6 +71,26 @@ public struct BlockEntry: Hashable, Sendable, CustomStringConvertible {
         }
         if let port { s += ":\(port)" }
         return s
+    }
+
+    /// Parses an entry and checks it makes sense in `mode`. An allowlist is enforced by the firewall
+    /// alone (`/etc/hosts` cannot say "everything except"), so `~` has nothing to act on, and a
+    /// port-limited entry would need a pass rule per port for little gain.
+    public static func parse(_ raw: String, for mode: BlockMode) throws(EntryError) -> BlockEntry {
+        let entry: BlockEntry
+        do {
+            entry = try parse(raw)
+        } catch {
+            // "cannot be blocked" would be wrong here: an allowlist never blocks loopback.
+            switch (mode, error) {
+            case (.allowlist, .localhost), (.allowlist, .loopback): throw .alwaysReachable(raw)
+            default: throw error
+            }
+        }
+        guard mode == .allowlist else { return entry }
+        if entry.hostsOnly { throw EntryError.hostsOnlyInAllowlist(raw) }
+        if entry.port != nil { throw EntryError.portInAllowlist(raw) }
+        return entry
     }
 
     /// Accepts "host", "host:port", "1.2.3.4", "10.0.0.0/8[:port]", "[v6]:port", "~host",

@@ -4,7 +4,11 @@ import Foundation
 /// To rename the project or relocate its files, change values here and nowhere else.
 public enum Identifiers {
     public static let version = "0.1.0"
-    public static let protocolVersion = 1
+    /// The newest protocol version this build accepts. Version 2 adds allowlist blocks; a daemon must
+    /// enforce a mode before it accepts the version that carries it, or it would quietly ignore it.
+    public static let protocolVersion = 2
+    /// Requests that carry `mode: allowlist` are sent as this version. See `Request.init`.
+    public static let allowlistProtocolVersion = 2
 
     public static let appName = "LockedIn"
     public static let bundleID = "com.tgreco.lockedin"
@@ -34,6 +38,9 @@ public enum Identifiers {
     public static let pfConfPath = "/etc/pf.conf"
     public static let pfTable = "lockedin_blocked"
     public static func pfPortTable(_ port: UInt16) -> String { "\(pfTable)_p\(port)" }
+    /// The addresses an allowlist block lets through. A separate name from `pfTable` so a status check
+    /// or a leftover anchor can never mistake one mode's rules for the other's.
+    public static let pfAllowTable = "lockedin_allowed"
 
     public static let hostsPath = "/etc/hosts"
     public static let hostsBeginMarker = "# BEGIN LOCKEDIN BLOCK"
@@ -95,6 +102,7 @@ public enum Identifiers {
             ("pfAnchor", pfAnchor),
             ("pfAnchorFilePath", pfAnchorFilePath),
             ("pfTable", pfTable),
+            ("pfAllowTable", pfAllowTable),
             ("hostsPath", hostsPath),
             ("hostsBeginMarker", hostsBeginMarker),
             ("hostsEndMarker", hostsEndMarker),

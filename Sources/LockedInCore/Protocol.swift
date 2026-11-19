@@ -8,21 +8,36 @@ public enum Command: String, Codable, Sendable {
 }
 
 public struct Request: Codable, Sendable, Equatable {
+    /// The oldest protocol version that can carry this request, not the newest this build speaks.
+    /// The CLI may be newer than the daemon, so everyday requests stay at v1 and keep working.
     public var v: Int
     public var cmd: Command
     public var entries: [String]?
     public var seconds: Int?
     public var expand: Bool?
+    /// Absent means blocklist, which is all a v1 daemon knows.
+    public var mode: BlockMode?
     /// Base64 AuthorizationExternalForm; required for `start` unless the peer is root.
     public var auth: String?
 
-    public init(cmd: Command, entries: [String]? = nil, seconds: Int? = nil, expand: Bool? = nil, auth: String? = nil) {
-        self.v = Identifiers.protocolVersion
+    public init(
+        cmd: Command, entries: [String]? = nil, seconds: Int? = nil, expand: Bool? = nil, mode: BlockMode? = nil,
+        auth: String? = nil
+    ) {
+        // A v1 daemon ignores fields it does not know. Sent as v1, `mode: allowlist` would start a
+        // blocklist block of exactly the sites the user meant to keep. As v2, a v1 daemon refuses it.
+        self.v = mode == .allowlist ? Identifiers.allowlistProtocolVersion : 1
         self.cmd = cmd
         self.entries = entries
         self.seconds = seconds
         self.expand = expand
+        self.mode = mode
         self.auth = auth
+    }
+
+    /// Whether a daemon speaking up to `protocolVersion` can honour this request.
+    public func isSupported(upTo protocolVersion: Int = Identifiers.protocolVersion) -> Bool {
+        (1...protocolVersion).contains(v)
     }
 }
 
@@ -54,6 +69,8 @@ public struct PFStatus: Codable, Sendable, Equatable {
 
 public struct StatusReport: Codable, Sendable, Equatable {
     public var state: Phase
+    /// Set while a block runs. Daemons older than allowlist mode leave it out: that means blocklist.
+    public var mode: BlockMode?
     public var remainingSeconds: Double?
     public var expectedEnd: Date?
     public var startedAt: Date?
@@ -73,7 +90,8 @@ public struct StatusReport: Codable, Sendable, Equatable {
     public var testMode: Bool
 
     public init(
-        state: Phase, remainingSeconds: Double? = nil, expectedEnd: Date? = nil, startedAt: Date? = nil,
+        state: Phase, mode: BlockMode? = nil, remainingSeconds: Double? = nil, expectedEnd: Date? = nil,
+        startedAt: Date? = nil,
         initialSeconds: Int? = nil, entries: [String] = [], hostsNames: [String] = [], pfNames: [String] = [],
         ports: [UInt16] = [], ipCount: Int = 0, lastResolveAt: Date? = nil, lastCheckAt: Date? = nil,
         pf: PFStatus? = nil, hostsOK: Bool? = nil, lastBlockEndedAt: Date? = nil,
@@ -81,6 +99,7 @@ public struct StatusReport: Codable, Sendable, Equatable {
         testMode: Bool = false
     ) {
         self.state = state
+        self.mode = mode
         self.remainingSeconds = remainingSeconds
         self.expectedEnd = expectedEnd
         self.startedAt = startedAt

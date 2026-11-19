@@ -438,6 +438,31 @@ struct ProtocolTests {
             try NDJSON.decode(Request.self, from: Data("{\"v\":1,\"cmd\":\"status\"}".utf8)) == Request(cmd: .status))
     }
 
+    /// The CLI may be newer than the daemon (invariant 6): only a request a v1 daemon would misread
+    /// is sent as v2, and a v1 daemon refuses it rather than starting a blocklist of the allowed sites.
+    @Test func onlyAllowlistRequestsNeedTheNewProtocol() throws {
+        #expect(Request(cmd: .status).v == 1)
+        #expect(Request(cmd: .start, entries: ["a.com"], seconds: 60, mode: .blocklist).v == 1)
+        let allow = Request(cmd: .start, entries: ["a.com"], seconds: 60, mode: .allowlist)
+        #expect(allow.v == Identifiers.allowlistProtocolVersion)
+        #expect(!allow.isSupported(upTo: 1))
+        #expect(allow.isSupported(upTo: Identifiers.allowlistProtocolVersion))
+        #expect(Request(cmd: .status).isSupported(upTo: Identifiers.allowlistProtocolVersion))
+        #expect(try NDJSON.decode(Request.self, from: NDJSON.encodeLine(allow)) == allow)
+    }
+
+    @Test func modeIsOptionalOnTheWire() throws {
+        let old = try NDJSON.decode(StatusReport.self, from: NDJSON.encodeLine(StatusReport(state: .active)))
+        #expect(old.mode == nil)
+        let plan = BlockPlan.compile([try BlockEntry.parse("a.com")], expand: false)
+        var json = try JSONSerialization.jsonObject(with: NDJSON.makeEncoder().encode(plan)) as! [String: Any]
+        #expect(json["mode"] as? String == "blocklist")
+        json["mode"] = nil
+        let decoded = try NDJSON.makeDecoder().decode(
+            BlockPlan.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(decoded == plan)
+    }
+
     @Test func responseRoundTrip() throws {
         let status = StatusReport(
             state: .active, remainingSeconds: 12.5, expectedEnd: Date(timeIntervalSince1970: 1_800_000_000),

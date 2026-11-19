@@ -18,6 +18,7 @@ struct LockedInCLI: ParsableCommand {
             Examples:
               lockedin start 2h youtube.com reddit.com   block two sites for two hours
               lockedin start 25m                         block the saved blocklist for 25 minutes
+              lockedin start 2h --allow github.com       block everything except github.com
               lockedin status --watch                    live countdown
               lockedin add x.com                         add a site to the running block
               lockedin list add news.ycombinator.com     save a site to the blocklist
@@ -51,7 +52,7 @@ enum Client {
                 let report: StatusReport
                 if saved.state == .active, let block = saved.block {
                     report = StatusReport(
-                        state: .active, remainingSeconds: block.remainingSeconds,
+                        state: .active, mode: block.plan.mode, remainingSeconds: block.remainingSeconds,
                         expectedEnd: saved.savedAt.addingTimeInterval(block.remainingSeconds),
                         startedAt: block.startedAt,
                         initialSeconds: block.initialSeconds, entries: block.plan.entries,
@@ -76,13 +77,23 @@ enum Client {
         return seconds
     }
 
-    static func validate(_ entries: [String]) throws {
+    static func validate(_ entries: [String], for mode: BlockMode = .blocklist) throws {
         for (index, entry) in entries.enumerated() {
             do {
-                _ = try BlockEntry.parse(entry)
+                _ = try BlockEntry.parse(entry, for: mode)
             } catch {
                 throw CLIError("entry \(index + 1): \(error)")
             }
+        }
+    }
+
+    /// Fails before the password prompt when the installed daemon predates allowlist mode. The daemon
+    /// would refuse the request anyway (it is sent as protocol v2); this only gives a clearer message.
+    static func requireAllowlistSupport() throws {
+        guard let info = try send(Request(cmd: .version)).version else { return }
+        guard info.protocolVersion >= Identifiers.allowlistProtocolVersion else {
+            throw CLIError(
+                "the installed daemon (\(info.version)) predates allowlist mode; update it with: make install")
         }
     }
 
@@ -107,13 +118,21 @@ enum Output {
             lines.append(line)
         case .active:
             let remaining = report.remainingSeconds ?? 0
-            var line = "LockedIn: ACTIVE — \(BlockDuration.words(remaining)) left"
+            let allowlist = report.mode == .allowlist
+            var line = "LockedIn: ACTIVE\(allowlist ? " (allowlist)" : "") — \(BlockDuration.words(remaining)) left"
             if let end = report.expectedEnd { line += ", ends at \(timeOfDay(end))" }
             lines.append(line)
-            lines.append("  sites: " + report.entries.joined(separator: " "))
-            lines.append(
-                "  \(report.hostsNames.count) names in /etc/hosts, \(report.ipCount) addresses in the firewall"
-                    + (report.ports.isEmpty ? "" : ", ports \(report.ports.map(String.init).joined(separator: ","))"))
+            if allowlist {
+                lines.append("  allowed: " + report.entries.joined(separator: " "))
+                let addresses = "\(report.ipCount) resolved address\(report.ipCount == 1 ? "" : "es")"
+                lines.append("  \(addresses) allowed in the firewall; every other site is blocked")
+            } else {
+                lines.append("  sites: " + report.entries.joined(separator: " "))
+                lines.append(
+                    "  \(report.hostsNames.count) names in /etc/hosts, \(report.ipCount) addresses in the firewall"
+                        + (report.ports.isEmpty
+                            ? "" : ", ports \(report.ports.map(String.init).joined(separator: ","))"))
+            }
             if live {
                 let hosts = report.hostsOK.map { $0 ? "ok" : "DRIFTED" } ?? "unchecked"
                 let pf =
@@ -166,6 +185,11 @@ struct Start: ParsableCommand {
     )
     var entries: [String] = []
 
+    @Flag(
+        name: .customLong("allow"),
+        help: "Allowlist: block every site except the ones listed. Needs sites or --list; ~ and ports do not apply.")
+    var allowlist = false
+
     @Option(name: .customLong("list"), help: "Read sites from this file instead of the saved blocklist.")
     var listPath: String?
 
@@ -177,8 +201,13 @@ struct Start: ParsableCommand {
 
     func run() throws {
         let seconds = try Client.parseDuration(duration)
+        let mode: BlockMode = allowlist ? .allowlist : .blocklist
         var sites = entries
         if sites.isEmpty {
+            // The saved blocklist holds sites to block; reading it as an allowlist would invert it.
+            if allowlist, listPath == nil {
+                throw ValidationError("name the sites to allow: lockedin start \(duration) --allow github.com")
+            }
             let store = BlocklistStore(path: listPath)
             let imported = store.importLegacyIfNeeded()
             if !imported.isEmpty {
@@ -189,13 +218,24 @@ struct Start: ParsableCommand {
                 throw ValidationError("nothing to block: pass sites, or save some with `lockedin list add youtube.com`")
             }
         }
-        try Client.validate(sites)
+        try Client.validate(sites, for: mode)
 
-        let prompt =
-            "Start a \(BlockDuration.words(Double(seconds))) block of \(sites.count) site\(sites.count == 1 ? "" : "s")? It cannot be stopped early."
+        let length = BlockDuration.words(Double(seconds))
+        let count = "\(sites.count) site\(sites.count == 1 ? "" : "s")"
+        let prompt: String
+        if allowlist {
+            try Client.requireAllowlistSupport()
+            print("Allowlist block: every site except these \(count) will be blocked for \(length).")
+            print("  allowed: " + sites.joined(separator: " "))
+            prompt =
+                "Start a \(length) allowlist block? Every site except these \(count) will be blocked until it ends. It cannot be stopped early."
+        } else {
+            prompt = "Start a \(length) block of \(count)? It cannot be stopped early."
+        }
         let authorization = try Client.authorize(prompt: prompt)
         let request = Request(
-            cmd: .start, entries: sites, seconds: seconds, expand: !noExpand, auth: authorization?.externalFormBase64)
+            cmd: .start, entries: sites, seconds: seconds, expand: !noExpand, mode: mode,
+            auth: authorization?.externalFormBase64)
         let response = try Client.send(request, timeout: 120)
         withExtendedLifetime(authorization) {}
         guard let status = response.status else { throw CLIError("the daemon sent no status") }
@@ -204,13 +244,18 @@ struct Start: ParsableCommand {
             print(try Output.json(status))
             return
         }
-        print(
-            "Block started for \(BlockDuration.words(Double(seconds)))"
-                + (status.expectedEnd.map { ", ends at \(Output.timeOfDay($0))" } ?? "") + ".")
-        print("  sites: " + status.entries.joined(separator: " "))
-        print(
-            "  \(status.hostsNames.count) names go in /etc/hosts; firewall addresses fill in over the next few seconds."
-        )
+        let ends = status.expectedEnd.map { ", ends at \(Output.timeOfDay($0))" } ?? ""
+        if allowlist {
+            print("Allowlist block started for \(length)\(ends).")
+            print("  allowed: " + status.entries.joined(separator: " "))
+            print("  Every other site is blocked. Localhost, DNS, and your local network still work.")
+        } else {
+            print("Block started for \(length)\(ends).")
+            print("  sites: " + status.entries.joined(separator: " "))
+            print(
+                "  \(status.hostsNames.count) names go in /etc/hosts; firewall addresses fill in over the next few seconds."
+            )
+        }
         print("There is no stop button.")
     }
 }
@@ -361,6 +406,9 @@ struct Preview: ParsableCommand {
     @Argument(help: "Sites to preview. Without any, the saved blocklist is used.")
     var entries: [String] = []
 
+    @Flag(name: .customLong("allow"), help: "Preview an allowlist: what stays reachable.")
+    var allowlist = false
+
     @Flag(name: .customLong("no-expand"))
     var noExpand = false
 
@@ -368,13 +416,23 @@ struct Preview: ParsableCommand {
         var sites = entries
         if sites.isEmpty { sites = BlocklistStore().load() }
         guard !sites.isEmpty else { throw ValidationError("nothing to preview") }
+        let mode: BlockMode = allowlist ? .allowlist : .blocklist
         var parsed: [BlockEntry] = []
         for (index, site) in sites.enumerated() {
-            do { parsed.append(try BlockEntry.parse(site)) } catch {
+            do { parsed.append(try BlockEntry.parse(site, for: mode)) } catch {
                 throw ValidationError("entry \(index + 1): \(error)")
             }
         }
-        let plan = BlockPlan.compile(parsed, expand: !noExpand)
+        let plan = BlockPlan.compile(parsed, expand: !noExpand, mode: mode)
+        if allowlist {
+            print("Names resolved and allowed by IP (\(plan.pfNames.count)):")
+            plan.pfNames.forEach { print("  \($0)") }
+            if !plan.networks.isEmpty {
+                print("Addresses allowed outright: " + plan.networks.map(\.description).joined(separator: " "))
+            }
+            print("Also allowed: localhost, DNS, and your local network. Every other site is blocked.")
+            return
+        }
         print("Names written to /etc/hosts (\(plan.hostsNames.count)):")
         plan.hostsNames.forEach { print("  \($0)" + (plan.hostsOnlyNames.contains($0) ? "   (hosts only)" : "")) }
         print("Names resolved and blocked by IP (\(plan.pfNames.count)):")

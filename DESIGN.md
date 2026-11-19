@@ -114,6 +114,62 @@ Further rules:
   waits at least 60 s after boot, because macOS loads the main ruleset late, and at most once a
   minute.
 
+## Allowlist mode
+
+`lockedin start 2h --allow github.com` blocks every site except the ones listed. `/etc/hosts` maps
+names to addresses and cannot say "every name except these", so **an allowlist is pf only**, in the
+same anchor:
+
+```
+table <lockedin_allowed> persist
+pass out quick on lo0 all no state
+pass out quick proto { tcp udp } from any to any port 53
+pass out quick inet proto udp from any port 68 to any port 67
+pass out quick inet6 proto udp from any port 546 to any port 547
+pass out quick from any to { 127.0.0.0/8, 10.0.0.0/8, ..., fe80::/10, fc00::/7, ff00::/8 }
+pass out quick from any to <lockedin_allowed>
+block return out quick all
+```
+
+pf takes the first `quick` match, so the order is the policy. Loopback (localhost), DNS, DHCP, and the private,
+link-local, and multicast ranges always pass. Without DNS even allowed sites cannot be looked up,
+and without the local network the router, printers, and AirDrop stop. Everything else is the user's
+list, resolved with `dig` into `lockedin_allowed` and re-resolved like a blocklist (add-only).
+
+Choices that differ from a blocklist:
+
+- **Loopback passes without state.** A localhost request and its reply both leave through `lo0`, so
+  a stateful pass matches the reply against the request's state in the wrong direction and pf drops
+  it silently. The first version did this and every local dev server hung. (`set skip on lo0` is the
+  usual answer, but it is a global option an anchor cannot set.)
+- **A separate table name.** Status checks and leftover-anchor cleanup look for a table by name, so
+  `lockedin_allowed` can never pass for `lockedin_blocked` or the reverse.
+- **Open connections are dropped once, at the start.** pf checks rules only when a connection opens,
+  so a video already streaming would keep playing. The daemon reads `pfctl -s states` and kills each
+  outbound connection to an address outside the always-allowed ranges and the listed networks. It
+  still never flushes all states: that would drop local SSH sessions too.
+- **Newly resolved addresses are not killed.** In a blocklist they are; in an allowlist they belong
+  to a site the user wants.
+- **`add` is refused.** Adding to a blocklist makes it stricter. Adding to an allowlist loosens a
+  running block, which is a way out of it. `extend` works in both modes.
+- **`~site` and `site:port` are refused**, with a message saying what to drop. `~` means "hosts file
+  only", which an allowlist does not use. A per-port allow would need a pass rule per port for little
+  gain.
+- **Google-family names are allowed by IP.** In a blocklist they are hosts-only because their front
+  ends are shared. Allowing one therefore allows those shared front ends: allowing YouTube lets Gmail
+  through. README › Limits says so.
+- **The saved blocklist is never read as an allowlist.** `--allow` needs sites or `--list`.
+
+What leaks is different too. DNS over HTTPS stops mattering, because the DoH server's address is
+blocked unless listed. In its place: any site on the same CDN address as an allowed site works,
+port 53 is open to any server, and a VPN carries traffic pf does not see.
+
+Rejected:
+
+- **Reusing the hosts file** by mapping "everything else" to `0.0.0.0`: there is no wildcard.
+- **A filtering resolver** that answers only allowed names. It is the DNS proxy rejected above,
+  with the same blast radius.
+
 ## The hosts contract
 
 The daemon owns one marked section of `/etc/hosts`, appended at the end the first time:
@@ -224,6 +280,9 @@ so the app can show a countdown even when the daemon isn't answering; only root 
   optional or with a default. `make install` during a block upgrades the daemon, and the new daemon
   must resume the old block. If it can't read the old state, the block is lost, which is an early
   exit.
+  `BlockPlan.mode` is the first such field: a plan without one decodes as a blocklist. A test
+  resumes a block from a `state.json` captured from the v0.1.0 daemon, so a decoding regression
+  fails CI rather than ending someone's block.
 
 ## The CLI may be newer than the daemon
 
@@ -238,14 +297,21 @@ Rules for protocol changes:
    CLI ignores response fields it doesn't know.
 2. **A field that changes what a request means must not rely on being ignored.** Allowlist mode is
    the example: an older daemon would drop `mode`, start an ordinary block, and block exactly the
-   sites the user wanted to keep. For such a field, the CLI first asks the daemon for `version` and
-   refuses if it is too old, or the request moves to a new protocol version.
-3. **`protocolVersion` changes only for incompatible changes.** The daemon rejects a version it
-   doesn't support with a clear error, and the CLI shows it. `lockedin doctor` flags any CLI/daemon
-   version mismatch and says to reinstall.
+   sites the user wanted to keep.
+3. **A request carries the oldest protocol version that can express it**, not the newest the CLI
+   speaks. The daemon accepts any version from 1 up to its own and rejects anything newer with a
+   clear error.
 
-Today the protocol is version 1. The daemon accepts exactly version 1, and no command needs
-negotiation yet. Rule 2 becomes live with allowlist mode (#1).
+So today: the protocol is version 2, which adds allowlist mode. Every request is sent as v1 except
+`start` with `mode: allowlist`, which is v2. A v1 daemon answers that with "unsupported protocol
+version 2" and starts nothing, so an allowlist can never quietly become a blocklist. Everything
+else, including `status`, still works across the version gap. The CLI also asks for `version` before
+the Touch ID prompt, to say "update the daemon" instead of failing after the user approved.
+
+A daemon only accepts a version once it enforces what that version carries. The commit that
+taught the daemon allowlist blocks is the one that raised its version to 2.
+
+`lockedin doctor` flags any CLI/daemon version mismatch and says to reinstall.
 
 ## The one way out
 
@@ -259,6 +325,7 @@ These are the ways out a user might try, and what each one does:
 | Change the clock | No effect. The countdown is monotonic. |
 | Edit `/etc/hosts` | Re-applied immediately by the watcher, or within 15 s at worst. |
 | `pfctl -d`, flush the anchor | Re-applied within 15 s. |
+| `lockedin add` during an allowlist block | Refused. It would loosen the block. |
 | `lockedin uninstall` | Refused while a block is running. It checks the live daemon *and* the saved state, so stopping the daemon first doesn't help. |
 | Disable LockedIn in System Settings › Login Items, or `launchctl bootout` as admin | **Works.** The countdown pauses and re-application stops. The hosts entries stay. |
 
@@ -273,8 +340,8 @@ intent: enough friction for the threat model above.
   documented behaviour.
 - `lockedindTests` runs a real `BlockController` under a **relocated root**
   (`RuntimePaths(root:)`, the same mechanism as `LOCKEDIN_TEST_ROOT`). Every system path moves into
-  a temporary directory and `pfctl` is simulated. This is where daemon behaviour such as hosts
-  ownership is tested without root.
+  a temporary directory and `pfctl` is simulated. Daemon behaviour is tested here without root:
+  hosts ownership, allowlist enforcement, and resuming a block saved by an older daemon.
 - `scripts/smoke-test.sh` is the end-to-end check on a real Mac, as root. It runs a real block, tampers
   with hosts and pf, kills the daemon, and checks that everything is restored and then removed at
   expiry.

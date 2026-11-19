@@ -107,6 +107,10 @@ public struct IPNetwork: Hashable, Sendable, Comparable, CustomStringConvertible
 
     public var isSingleHost: Bool { prefix == address.maxPrefix }
 
+    public func contains(_ ip: IPAddress) -> Bool {
+        ip.family == address.family && ip.masked(prefix: prefix) == address
+    }
+
     public var description: String {
         isSingleHost ? address.description : "\(address.description)/\(prefix)"
     }

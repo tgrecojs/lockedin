@@ -32,8 +32,8 @@ final class PFManager {
 
     /// Writes the anchor file when its content changed. Returns true when it wrote.
     @discardableResult
-    func writeAnchorFile(ports: [UInt16]) -> Bool {
-        let text = PFAnchor.render(ports: ports)
+    func writeAnchorFile(mode: BlockMode, ports: [UInt16]) -> Bool {
+        let text = PFAnchor.render(mode: mode, ports: ports)
         if let existing = try? String(contentsOfFile: anchorFilePath, encoding: .utf8), existing == text {
             return false
         }
@@ -94,6 +94,16 @@ final class PFManager {
         pf(["-X", token], quietFailure: true)
     }
 
+    /// Drops every open outbound connection to an address outside `keep`. Used once when an allowlist
+    /// block starts, because pf rules only apply to connections opened after them.
+    func dropConnections(outside keep: [IPNetwork]) {
+        guard !simulated else { return }
+        let destinations = PFAnchor.outboundDestinations(
+            statesOutput: pf(["-s", "states"], quietFailure: true).output, outside: keep)
+        if !destinations.isEmpty { Log.info("dropping \(destinations.count) open connection(s) outside the allowlist") }
+        killStates(to: Set(destinations))
+    }
+
     /// Drops existing connections to the given addresses so a site already open stops working.
     func killStates(to addresses: Set<String>) {
         for address in addresses.sorted() {
@@ -114,10 +124,19 @@ final class PFManager {
         pf(["-f", Identifiers.pfConfPath])
     }
 
-    func anchorRulesLoaded(ports: [UInt16]) -> Bool {
+    func anchorRulesLoaded(mode: BlockMode, ports: [UInt16]) -> Bool {
         simulated
             ? true
-            : PFAnchor.anchorRulesLoaded(pf(["-a", anchor, "-s", "rules"], quietFailure: true).output, ports: ports)
+            : PFAnchor.anchorRulesLoaded(
+                pf(["-a", anchor, "-s", "rules"], quietFailure: true).output, mode: mode, ports: ports)
+    }
+
+    /// Whether the anchor holds rules of either mode, e.g. left behind by a crash.
+    func anchorHasRules() -> Bool {
+        guard !simulated else { return false }
+        let output = pf(["-a", anchor, "-s", "rules"], quietFailure: true).output
+        return PFAnchor.anchorRulesLoaded(output, mode: .blocklist, ports: [])
+            || PFAnchor.anchorRulesLoaded(output, mode: .allowlist, ports: [])
     }
 
     func tableContents(_ table: String) -> Set<String> {
@@ -127,7 +146,9 @@ final class PFManager {
                 fromTableShow: pf(["-a", anchor, "-t", table, "-T", "show"], quietFailure: true).output)
     }
 
-    func status(ports: [UInt16], expectedTables: [String: Set<String>], tokens: [String]) -> PFStatus {
+    func status(mode: BlockMode, ports: [UInt16], expectedTables: [String: Set<String>], tokens: [String])
+        -> PFStatus
+    {
         if simulated {
             return PFStatus(
                 enabled: true, mainAnchorPresent: true, anchorLoaded: true, tablesOK: true, tokens: tokens,
@@ -135,7 +156,7 @@ final class PFManager {
         }
         let enabled = isEnabled()
         let main = mainRulesetHasWildcardAnchor()
-        let loaded = anchorRulesLoaded(ports: ports)
+        let loaded = anchorRulesLoaded(mode: mode, ports: ports)
         var tablesOK = true
         for (table, expected) in expectedTables where !expected.isEmpty {
             if !tableContents(table).isSuperset(of: expected) {

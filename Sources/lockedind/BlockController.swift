@@ -96,7 +96,7 @@ final class BlockController {
             hosts.flushDNSCache()
             Log.info("removed a leftover hosts section")
         }
-        if !pf.simulated, pf.anchorRulesLoaded(ports: []) {
+        if pf.anchorHasRules() {
             pf.flushAnchor()
             Log.info("flushed a leftover pf anchor")
         }
@@ -110,14 +110,17 @@ final class BlockController {
         }
         let remaining = max(0, countdown.remaining(nowNs: MonotonicClock.nowNs()))
         return StatusReport(
-            state: .active, remainingSeconds: remaining, expectedEnd: Date().addingTimeInterval(remaining),
+            state: .active, mode: block.plan.mode, remainingSeconds: remaining,
+            expectedEnd: Date().addingTimeInterval(remaining),
             startedAt: block.startedAt, initialSeconds: block.initialSeconds, entries: block.plan.entries,
             hostsNames: block.plan.hostsNames, pfNames: block.plan.pfNames, ports: block.plan.ports,
             ipCount: block.resolved.count, lastResolveAt: block.lastResolveAt, lastCheckAt: lastCheckAt,
             pf: lastPFStatus, hostsOK: lastHostsOK, lastBlockEndedAt: lastBlockEndedAt, testMode: paths.isTestMode)
     }
 
-    func start(entries rawEntries: [String], seconds: Int, expand: Bool) throws(DaemonError) -> StatusReport {
+    func start(entries rawEntries: [String], seconds: Int, expand: Bool, mode: BlockMode = .blocklist)
+        throws(DaemonError) -> StatusReport
+    {
         guard block == nil else {
             throw DaemonError(
                 .blockActive, "a block is already running (\(BlockDuration.words(currentRemaining)) left)")
@@ -129,18 +132,21 @@ final class BlockController {
             throw DaemonError(
                 .tooLong, "a block can last at most \(BlockDuration.words(Double(Identifiers.maxBlockSeconds)))")
         }
-        let parsed = try parseEntries(rawEntries)
+        let parsed = try parseEntries(rawEntries, mode: mode)
         guard !parsed.isEmpty else { throw DaemonError(.invalidEntry, "nothing to block") }
 
-        let plan = BlockPlan.compile(parsed, expand: expand)
+        let plan = BlockPlan.compile(parsed, expand: expand, mode: mode)
         let now = MonotonicClock.nowNs()
         block = ActiveBlock(
             startedAt: Date(), initialSeconds: seconds, remainingSeconds: Double(seconds),
             plan: plan, resolved: ResolvedSets(), pfTokens: [], lastResolveAt: nil)
         countdown = Countdown(remaining: Double(seconds), nowNs: now)
         unresolvedWarned = []
-        Log.info("block started for \(BlockDuration.words(Double(seconds))): \(plan.entries.joined(separator: " "))")
+        Log.info(
+            "\(mode.rawValue) block started for \(BlockDuration.words(Double(seconds))): \(plan.entries.joined(separator: " "))"
+        )
         applyAll()
+        if mode == .allowlist { pf.dropConnections(outside: PFAnchor.alwaysAllowed + plan.networks) }
         persist()
         startTimer()
         scheduleResolve(force: true)
@@ -149,7 +155,13 @@ final class BlockController {
 
     func add(entries rawEntries: [String]) throws(DaemonError) -> (StatusReport, [String]) {
         guard var current = block else { throw DaemonError(.noBlock, "no block is running") }
-        let parsed = try parseEntries(rawEntries)
+        // Adding to a blocklist makes it stricter. Adding to an allowlist would loosen a running block,
+        // which is a way out of it (invariant 1). Existing error code: an older app must still decode it.
+        guard current.plan.mode == .blocklist else {
+            throw DaemonError(
+                .badRequest, "an allowlist block cannot take new sites: that would loosen it. `extend` still works.")
+        }
+        let parsed = try parseEntries(rawEntries, mode: current.plan.mode)
         let before = Set(current.plan.entries)
         let newPlan = current.plan.adding(parsed)
         let added = newPlan.entries.filter { !before.contains($0) }
@@ -183,14 +195,14 @@ final class BlockController {
         return status()
     }
 
-    private func parseEntries(_ raw: [String]) throws(DaemonError) -> [BlockEntry] {
+    private func parseEntries(_ raw: [String], mode: BlockMode) throws(DaemonError) -> [BlockEntry] {
         guard raw.count <= Identifiers.maxEntries else {
             throw DaemonError(.tooManyEntries, "a block can hold at most \(Identifiers.maxEntries) entries")
         }
         var out: [BlockEntry] = []
         for (index, text) in raw.enumerated() {
             do {
-                out.append(try BlockEntry.parse(text))
+                out.append(try BlockEntry.parse(text, for: mode))
             } catch {
                 throw DaemonError(.invalidEntry, error.description, index: index)
             }
@@ -271,10 +283,11 @@ final class BlockController {
 
     private func applyPF(_ block: ActiveBlock, newAddresses: Set<String>) {
         let tables = PFAnchor.expectedTables(plan: block.plan, resolved: block.resolved)
-        pf.writeAnchorFile(ports: block.plan.ports)
+        pf.writeAnchorFile(mode: block.plan.mode, ports: block.plan.ports)
         guard pf.loadAnchor() else {
             Log.error("could not load the pf anchor; will retry on the next check")
-            lastPFStatus = pf.status(ports: block.plan.ports, expectedTables: tables, tokens: block.pfTokens)
+            lastPFStatus = pf.status(
+                mode: block.plan.mode, ports: block.plan.ports, expectedTables: tables, tokens: block.pfTokens)
             return
         }
         for (table, addresses) in tables {
@@ -287,8 +300,9 @@ final class BlockController {
                 Log.info("pf enabled (reference token \(token))")
             }
         }
-        if !newAddresses.isEmpty { pf.killStates(to: newAddresses) }
-        lastPFStatus = pf.status(ports: block.plan.ports, expectedTables: tables, tokens: self.block?.pfTokens ?? [])
+        if !newAddresses.isEmpty, block.plan.mode == .blocklist { pf.killStates(to: newAddresses) }
+        lastPFStatus = pf.status(
+            mode: block.plan.mode, ports: block.plan.ports, expectedTables: tables, tokens: self.block?.pfTokens ?? [])
     }
 
     private func verify() {
@@ -302,7 +316,8 @@ final class BlockController {
         }
 
         guard !pf.simulated else {
-            lastPFStatus = pf.status(ports: block.plan.ports, expectedTables: [:], tokens: block.pfTokens)
+            lastPFStatus = pf.status(
+                mode: block.plan.mode, ports: block.plan.ports, expectedTables: [:], tokens: block.pfTokens)
             return
         }
         let now = MonotonicClock.nowNs()
@@ -319,7 +334,8 @@ final class BlockController {
             }
         }
         let tables = PFAnchor.expectedTables(plan: block.plan, resolved: block.resolved)
-        let status = pf.status(ports: block.plan.ports, expectedTables: tables, tokens: block.pfTokens)
+        let status = pf.status(
+            mode: block.plan.mode, ports: block.plan.ports, expectedTables: tables, tokens: block.pfTokens)
         if status.healthy {
             lastPFStatus = status
         } else {
@@ -351,7 +367,7 @@ final class BlockController {
         for result in results where !result.addresses.isEmpty {
             let added = current.resolved.add(result.addresses, port: result.port)
             if !added.isEmpty {
-                let table = result.port.map(Identifiers.pfPortTable) ?? Identifiers.pfTable
+                let table = PFAnchor.table(mode: current.plan.mode, port: result.port)
                 newByTable[table, default: []].formUnion(added)
             }
         }
@@ -372,8 +388,8 @@ final class BlockController {
         }
         if needFullApply {
             applyPF(current, newAddresses: allNew)
-        } else {
-            pf.killStates(to: allNew)
+        } else if current.plan.mode == .blocklist {
+            pf.killStates(to: allNew)  // newly found addresses of an allowed site must keep working
         }
         persist()
     }
