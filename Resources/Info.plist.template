@@ -31,6 +31,6 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>GPL-3.0</string>
+	<string>Copyright © 2026 Thomas Greco. MIT License.</string>
 </dict>
 </plist>
