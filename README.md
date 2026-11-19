@@ -193,4 +193,4 @@ LockedIn shares no code with it.
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
